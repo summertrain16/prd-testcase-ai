@@ -1159,136 +1159,150 @@ def escape_sql_block_comment(text: str) -> str:
 
 def inject_custom_css() -> None:
     """
-    注入页面美化 CSS — 现代极简风格。
+    注入页面美化 CSS — Notion留白 + AntPro轻量化 + Vercel工程质感。
     """
     st.markdown(
         """
 <style>
 /* ===== 全局 ===== */
 .block-container {
-    padding-top: 2rem;
-    padding-bottom: 4rem;
-    max-width: 1280px;
+    padding-top: 2.5rem;
+    padding-bottom: 5rem;
+    max-width: 1200px;
 }
 
-/* 字体层级收紧 */
-h1, h2, h3 {
-    font-weight: 600 !important;
-    letter-spacing: -0.02em;
+/* 字体层级 */
+h1 { font-size: 20px !important; font-weight: 600 !important; letter-spacing: -0.02em; color: #0F172A; }
+h2 { font-size: 16px !important; font-weight: 600 !important; letter-spacing: -0.01em; color: #0F172A; }
+h3 { font-size: 14px !important; font-weight: 600 !important; color: #334155; }
+
+/* 正文 */
+p, li {
+    font-size: 14px !important;
+    line-height: 1.7;
+    color: #334155;
 }
 
-/* ===== 顶部标题区 ===== */
+/* ===== 顶部标题区 — Notion式白底，下划线分隔 ===== */
 .app-hero {
-    padding: 28px 32px;
-    border-radius: 10px;
-    background: #2563EB;
-    margin-bottom: 24px;
+    padding: 0 0 12px 0;
+    border-radius: 0;
+    background: transparent;
+    border-bottom: 2px solid #0F172A;
+    margin-bottom: 28px;
 }
 
 .app-hero-title {
-    font-size: 22px;
-    font-weight: 600;
-    color: #F8FAFC;
-    margin-bottom: 6px;
-    letter-spacing: -0.02em;
+    font-size: 24px;
+    font-weight: 700;
+    color: #0F172A;
+    margin-bottom: 4px;
+    letter-spacing: -0.03em;
 }
 
 .app-hero-desc {
     font-size: 13px;
-    color: #94A3B8;
-    line-height: 1.6;
+    color: #64748B;
+    line-height: 1.5;
 }
 
-/* ===== 步骤进度卡片 ===== */
+/* ===== 步骤进度卡片 — 克制，蓝色仅点缀 ===== */
 .step-card {
-    padding: 16px 14px;
-    border-radius: 8px;
+    padding: 14px 12px;
+    border-radius: 6px;
     border: 1px solid #E2E8F0;
     background: #FFFFFF;
     text-align: center;
-    min-height: 72px;
+    min-height: 64px;
     transition: all 0.15s ease;
 }
 
 .step-card-active {
     border: 1px solid #2563EB;
-    background: #2563EB;
+    background: #EFF6FF;
 }
 
 .step-card-done {
     border: 1px solid #E2E8F0;
-    background: #F8FAFC;
+    background: #FAFAFA;
 }
 
 .step-card-title {
     font-size: 13px;
     font-weight: 500;
-    color: #334155;
+    color: #64748B;
     line-height: 1.4;
 }
 
 .step-card-active .step-card-title {
-    color: #F8FAFC;
+    color: #2563EB;
+    font-weight: 600;
+}
+
+.step-card-done .step-card-title {
+    color: #94A3B8;
 }
 
 .step-card-status {
-    margin-top: 6px;
+    margin-top: 4px;
     font-size: 11px;
-    color: #94A3B8;
+    color: #CBD5E1;
     font-weight: 400;
 }
 
 .step-card-active .step-card-status {
-    color: #94A3B8;
+    color: #60A5FA;
 }
 
 .step-card-done .step-card-status {
-    color: #64748B;
+    color: #CBD5E1;
 }
 
-/* ===== 步骤说明卡片 ===== */
+/* ===== 步骤说明卡片 — 去边框，Notion式底线 ===== */
 .page-section-card {
-    padding: 20px 24px;
-    border-radius: 8px;
-    background: #FFFFFF;
-    border: 1px solid #E2E8F0;
-    margin-bottom: 20px;
+    padding: 0 0 16px 0;
+    border-radius: 0;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #F1F5F9;
+    margin-bottom: 24px;
 }
 
 .page-section-title {
     font-size: 18px;
     font-weight: 600;
     color: #0F172A;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
     letter-spacing: -0.01em;
 }
 
 .page-section-desc {
     font-size: 13px;
-    color: #64748B;
-    line-height: 1.6;
+    color: #94A3B8;
+    line-height: 1.5;
 }
 
-/* ===== Streamlit 按钮 ===== */
+/* ===== 按钮 — 默认中性灰，蓝色仅primary ===== */
 .stButton > button,
 .stDownloadButton > button {
     border-radius: 6px !important;
-    min-height: 38px;
+    min-height: 36px;
     font-weight: 500 !important;
     font-size: 13px !important;
     transition: all 0.12s ease;
-    border: 1px solid #DBEAFE !important;
+    border: 1px solid #E2E8F0 !important;
     background: #FFFFFF !important;
-    color: #2563EB !important;
+    color: #334155 !important;
 }
 
 .stButton > button:hover,
 .stDownloadButton > button:hover {
-    border-color: #2563EB !important;
-    background: #EFF6FF !important;
+    border-color: #CBD5E1 !important;
+    background: #F8FAFC !important;
+    color: #0F172A !important;
 }
 
-/* primary 按钮 */
+/* primary 按钮 — 唯一用蓝色的地方 */
 .stButton > button[kind="primary"],
 div[data-testid="stButton"] > button[kind="primary"] {
     background: #2563EB !important;
@@ -1304,78 +1318,90 @@ div[data-testid="stButton"] > button[kind="primary"] {
 /* ===== 输入框 ===== */
 textarea, input {
     border-radius: 6px !important;
-    font-size: 13px !important;
+    font-size: 14px !important;
 }
 
-/* ===== expander ===== */
+/* ===== expander — 淡底色无边框 ===== */
 div[data-testid="stExpander"] {
-    border-radius: 8px !important;
-    border: 1px solid #E2E8F0 !important;
+    border-radius: 6px !important;
+    border: 1px solid #F1F5F9 !important;
+    background: #FAFAFA !important;
 }
 
 /* ===== sidebar ===== */
 section[data-testid="stSidebar"] {
     background: #FAFAFA;
-    border-right: 1px solid #E2E8F0;
+    border-right: 1px solid #F1F5F9;
 }
 
 section[data-testid="stSidebar"] h1,
 section[data-testid="stSidebar"] h2,
 section[data-testid="stSidebar"] h3 {
     color: #0F172A;
-    font-size: 13px !important;
+    font-size: 12px !important;
     font-weight: 600 !important;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
 }
 
-/* ===== data editor / dataframe ===== */
+/* ===== data editor ===== */
 div[data-testid="stDataFrame"] {
-    border-radius: 8px;
+    border-radius: 6px;
 }
 
-/* ===== 分割线 ===== */
+/* ===== 分割线 — 极淡 ===== */
 hr {
     border: none;
     border-top: 1px solid #F1F5F9;
-    margin-top: 1.5rem;
-    margin-bottom: 1.5rem;
+    margin-top: 2rem;
+    margin-bottom: 2rem;
 }
 
-/* ===== alert 框 ===== */
+/* ===== alert — 去边框 ===== */
 div[data-testid="stAlert"] {
     border-radius: 6px;
-    border: 1px solid #E2E8F0;
+    border: none !important;
 }
 
 /* ===== 代码块 ===== */
 pre {
     border-radius: 6px !important;
+    font-size: 13px !important;
 }
 
 /* ===== markdown 表格 ===== */
 table {
     border-radius: 6px;
     overflow: hidden;
+    border: 1px solid #E2E8F0 !important;
 }
 
 th {
     font-weight: 600 !important;
     font-size: 12px !important;
+    background: #F8FAFC !important;
+    color: #475569 !important;
 }
 
 td {
     font-size: 13px !important;
+    color: #334155 !important;
 }
 
 /* ===== tab ===== */
 div[data-testid="stTabs"] {
-    border-radius: 8px;
+    border-radius: 6px;
 }
 
-/* 隐藏 Streamlit 默认的 padding 减少空隙感 */
+/* ===== container(可滚动) — 细边框 ===== */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid #F1F5F9 !important;
+    border-radius: 6px !important;
+}
+
+/* element 间距 */
 .element-container {
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 </style>
         """,

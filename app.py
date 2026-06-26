@@ -1430,6 +1430,32 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 .element-container {
     margin-bottom: 8px;
 }
+
+/* ===== 强制蓝底 primary 按钮内部文字为白色 ===== */
+.stButton button[kind="primary"] *,
+div[data-testid="stButton"] button[kind="primary"] *,
+button[kind="primary"] *,
+.stButton button[data-testid="stBaseButton-primary"] *,
+div[data-testid="stButton"] button[data-testid="stBaseButton-primary"] *,
+button[data-testid="stBaseButton-primary"] *,
+section[data-testid="stMain"] button[kind="primary"] *,
+div[class*="stButton"] button[kind="primary"] * {
+    color: #FFFFFF !important;
+    fill: #FFFFFF !important;
+}
+/* primary 按钮 hover 时，内部文字也保持白色 */
+.stButton button[kind="primary"]:hover *,
+div[data-testid="stButton"] button[kind="primary"]:hover *,
+button[kind="primary"]:hover *,
+.stButton button[data-testid="stBaseButton-primary"]:hover *,
+div[data-testid="stButton"] button[data-testid="stBaseButton-primary"]:hover *,
+button[data-testid="stBaseButton-primary"]:hover *,
+section[data-testid="stMain"] button[kind="primary"]:hover *,
+div[class*="stButton"] button[kind="primary"]:hover * {
+    color: #FFFFFF !important;
+    fill: #FFFFFF !important;
+}
+
 </style>
         """,
         unsafe_allow_html=True

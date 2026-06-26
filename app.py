@@ -1333,8 +1333,13 @@ div[class*="stButton"] button[kind="primary"]:hover {
 
 /* 兜底：任何带 primary 的按钮强制白字 */
 button[class*="primary"],
-button[class*="Primary"] {
+button[class*="Primary"],
+.st-emotion-cache-1dumvfu,
+button.st-emotion-cache-1dumvfu,
+.stButton button.st-emotion-cache-1dumvfu {
     color: #FFFFFF !important;
+    background: #2563EB !important;
+    border-color: #2563EB !important;
 }
 
 /* ===== 输入框 ===== */

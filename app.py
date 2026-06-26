@@ -1159,161 +1159,223 @@ def escape_sql_block_comment(text: str) -> str:
 
 def inject_custom_css() -> None:
     """
-    注入页面美化 CSS。
-    只影响展示样式，不改业务逻辑。
+    注入页面美化 CSS — 现代极简风格。
     """
     st.markdown(
         """
 <style>
-/* 页面整体 */
+/* ===== 全局 ===== */
 .block-container {
-    padding-top: 1.5rem;
-    padding-bottom: 3rem;
-    max-width: 1400px;
+    padding-top: 2rem;
+    padding-bottom: 4rem;
+    max-width: 1280px;
 }
 
-/* 顶部标题区域 */
+/* 字体层级收紧 */
+h1, h2, h3 {
+    font-weight: 600 !important;
+    letter-spacing: -0.02em;
+}
+
+/* ===== 顶部标题区 ===== */
 .app-hero {
-    padding: 22px 26px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, #EEF4FF 0%, #F8FBFF 45%, #FFFFFF 100%);
-    border: 1px solid #E5ECFF;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-    margin-bottom: 18px;
+    padding: 28px 32px;
+    border-radius: 10px;
+    background: #0F172A;
+    margin-bottom: 24px;
 }
 
 .app-hero-title {
-    font-size: 30px;
-    font-weight: 800;
-    color: #0F172A;
-    margin-bottom: 8px;
+    font-size: 22px;
+    font-weight: 600;
+    color: #F8FAFC;
+    margin-bottom: 6px;
+    letter-spacing: -0.02em;
 }
 
 .app-hero-desc {
-    font-size: 15px;
-    color: #475569;
-    line-height: 1.7;
+    font-size: 13px;
+    color: #94A3B8;
+    line-height: 1.6;
 }
 
-/* 页面步骤卡片 */
+/* ===== 步骤进度卡片 ===== */
 .step-card {
-    padding: 14px 16px;
-    border-radius: 14px;
-    border: 1px solid #E5E7EB;
+    padding: 16px 14px;
+    border-radius: 8px;
+    border: 1px solid #E2E8F0;
     background: #FFFFFF;
-    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
     text-align: center;
-    min-height: 86px;
+    min-height: 72px;
+    transition: all 0.15s ease;
 }
 
 .step-card-active {
-    border: 1px solid #3B82F6;
-    background: linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%);
-    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.12);
+    border: 1px solid #0F172A;
+    background: #0F172A;
 }
 
 .step-card-done {
-    border: 1px solid #BBF7D0;
-    background: linear-gradient(180deg, #F0FDF4 0%, #FFFFFF 100%);
+    border: 1px solid #E2E8F0;
+    background: #F8FAFC;
 }
 
 .step-card-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: #111827;
+    font-size: 13px;
+    font-weight: 500;
+    color: #334155;
+    line-height: 1.4;
+}
+
+.step-card-active .step-card-title {
+    color: #F8FAFC;
 }
 
 .step-card-status {
-    margin-top: 8px;
-    font-size: 12px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: #94A3B8;
+    font-weight: 400;
+}
+
+.step-card-active .step-card-status {
+    color: #94A3B8;
+}
+
+.step-card-done .step-card-status {
     color: #64748B;
 }
 
-/* 页面说明块 */
+/* ===== 步骤说明卡片 ===== */
 .page-section-card {
-    padding: 18px 20px;
-    border-radius: 16px;
+    padding: 20px 24px;
+    border-radius: 8px;
     background: #FFFFFF;
-    border: 1px solid #E5E7EB;
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
-    margin-bottom: 18px;
+    border: 1px solid #E2E8F0;
+    margin-bottom: 20px;
 }
 
 .page-section-title {
-    font-size: 22px;
-    font-weight: 800;
+    font-size: 18px;
+    font-weight: 600;
     color: #0F172A;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
+    letter-spacing: -0.01em;
 }
 
 .page-section-desc {
-    font-size: 14px;
+    font-size: 13px;
     color: #64748B;
-    line-height: 1.7;
+    line-height: 1.6;
 }
 
-/* Streamlit 按钮 */
-.stButton > button {
-    border-radius: 12px !important;
-    min-height: 42px;
-    font-weight: 700;
-    transition: all 0.15s ease-in-out;
-}
-
-.stButton > button:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
-}
-
-/* 下载按钮 */
+/* ===== Streamlit 按钮 ===== */
+.stButton > button,
 .stDownloadButton > button {
-    border-radius: 12px !important;
-    min-height: 42px;
-    font-weight: 700;
+    border-radius: 6px !important;
+    min-height: 38px;
+    font-weight: 500 !important;
+    font-size: 13px !important;
+    transition: all 0.12s ease;
+    border: 1px solid #E2E8F0 !important;
+    background: #FFFFFF !important;
+    color: #0F172A !important;
 }
 
-/* 输入框、文本框 */
+.stButton > button:hover,
+.stDownloadButton > button:hover {
+    border-color: #0F172A !important;
+    background: #F8FAFC !important;
+}
+
+/* primary 按钮 */
+.stButton > button[kind="primary"],
+div[data-testid="stButton"] > button[kind="primary"] {
+    background: #0F172A !important;
+    color: #F8FAFC !important;
+    border: 1px solid #0F172A !important;
+}
+
+.stButton > button[kind="primary"]:hover {
+    background: #1E293B !important;
+    border-color: #1E293B !important;
+}
+
+/* ===== 输入框 ===== */
 textarea, input {
-    border-radius: 10px !important;
+    border-radius: 6px !important;
+    font-size: 13px !important;
 }
 
-/* expander */
+/* ===== expander ===== */
 div[data-testid="stExpander"] {
-    border-radius: 14px !important;
-    border: 1px solid #E5E7EB !important;
-    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+    border-radius: 8px !important;
+    border: 1px solid #E2E8F0 !important;
 }
 
-/* sidebar */
+/* ===== sidebar ===== */
 section[data-testid="stSidebar"] {
-    background: #F8FAFC;
+    background: #FAFAFA;
+    border-right: 1px solid #E2E8F0;
 }
 
 section[data-testid="stSidebar"] h1,
 section[data-testid="stSidebar"] h2,
 section[data-testid="stSidebar"] h3 {
     color: #0F172A;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
-/* data editor 外观 */
+/* ===== data editor / dataframe ===== */
 div[data-testid="stDataFrame"] {
-    border-radius: 14px;
+    border-radius: 8px;
 }
 
-/* 分割线淡一点 */
+/* ===== 分割线 ===== */
 hr {
-    margin-top: 1.2rem;
-    margin-bottom: 1.2rem;
+    border: none;
+    border-top: 1px solid #F1F5F9;
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
 }
 
-/* 成功、警告、提示框圆角 */
+/* ===== alert 框 ===== */
 div[data-testid="stAlert"] {
-    border-radius: 12px;
+    border-radius: 6px;
+    border: 1px solid #E2E8F0;
 }
 
-/* 代码块 */
+/* ===== 代码块 ===== */
 pre {
-    border-radius: 12px !important;
+    border-radius: 6px !important;
+}
+
+/* ===== markdown 表格 ===== */
+table {
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+th {
+    font-weight: 600 !important;
+    font-size: 12px !important;
+}
+
+td {
+    font-size: 13px !important;
+}
+
+/* ===== tab ===== */
+div[data-testid="stTabs"] {
+    border-radius: 8px;
+}
+
+/* 隐藏 Streamlit 默认的 padding 减少空隙感 */
+.element-container {
+    margin-bottom: 12px;
 }
 </style>
         """,
@@ -1353,17 +1415,17 @@ def render_step_progress() -> None:
 
     cols = st.columns(len(STEP_OPTIONS))
 
-    icons = ["📥", "🧩", "✅", "🧪"]
+    icons = ["01", "02", "03", "04"]
 
     for index, step in enumerate(STEP_OPTIONS):
         if index < current_index:
             status = "已完成"
             card_class = "step-card step-card-done"
-            status_icon = "✅"
+            status_icon = "—"
         elif index == current_index:
             status = "当前步骤"
             card_class = "step-card step-card-active"
-            status_icon = "👉"
+            status_icon = "●"
         else:
             status = "待处理"
             card_class = "step-card"
@@ -1382,14 +1444,15 @@ def render_step_progress() -> None:
 
     st.write("")
 
-def render_page_header(title: str, desc: str, icon: str = "📌") -> None:
+def render_page_header(title: str, desc: str, icon: str = "") -> None:
     """
     每个步骤顶部的说明卡片。
     """
+    title_html = f"{icon} {title}" if icon else title
     st.markdown(
         f"""
 <div class="page-section-card">
-    <div class="page-section-title">{icon} {title}</div>
+    <div class="page-section-title">{title_html}</div>
     <div class="page-section-desc">{desc}</div>
 </div>
         """,
@@ -1489,8 +1552,10 @@ def _split_sections_by_heading(result_text: str, headings: list) -> dict:
 
 def render_test_case_result_with_download(result_text: str) -> None:
     """
-    渲染测试用例结果，将一、二、三三个章节分开展示，不包在一个容器里。
-    SQL 下载按钮放在"三、SQL 校验脚本"标题下方。
+    渲染测试用例结果：
+    - SQL 下载按钮放在最顶部
+    - 一、二、三三个章节各自包在可滚动容器里（st.container border + height）
+    - 章节之间用 st.divider() 分隔
     """
     if not result_text:
         return
@@ -1499,49 +1564,39 @@ def render_test_case_result_with_download(result_text: str) -> None:
 
     sections = _split_sections_by_heading(result_text, ["一", "二", "三"])
 
-    # 如果没匹配到任何章节标题，退回整段渲染
+    # 下载按钮始终放最顶部
+    st.download_button(
+        label="下载 SQL 脚本",
+        data=sql_download_content,
+        file_name="data_test_validation.sql",
+        mime="text/plain",
+        use_container_width=True
+    )
+
+    # 如果没匹配到任何章节标题，退回整段渲染（放在可滚动容器里）
     if not sections:
-        st.download_button(
-            label="⬇️ 下载可执行 SQL 脚本",
-            data=sql_download_content,
-            file_name="data_test_validation.sql",
-            mime="text/plain",
-            use_container_width=True
-        )
-        st.markdown(result_text)
+        with st.container(height=400, border=True):
+            st.markdown(result_text)
         return
 
-    # 一、测试关注点
+    # 一、测试关注点 — 可滚动容器
     if "一" in sections:
-        st.markdown(sections["一"])
+        with st.container(height=350, border=True):
+            st.markdown(sections["一"])
 
     st.divider()
 
-    # 二、测试用例清单
+    # 二、测试用例清单 — 可滚动容器
     if "二" in sections:
-        st.markdown(sections["二"])
+        with st.container(height=400, border=True):
+            st.markdown(sections["二"])
 
     st.divider()
 
-    # 三、SQL 校验脚本（含下载按钮）
+    # 三、SQL 校验脚本 — 可滚动容器
     if "三" in sections:
-        st.markdown(sections["三"])
-        st.download_button(
-            label="下载可执行 SQL 脚本",
-            data=sql_download_content,
-            file_name="data_test_validation.sql",
-            mime="text/plain",
-            use_container_width=True
-        )
-    else:
-        # 没有匹配到"三"，兜底放下载按钮
-        st.download_button(
-            label="⬇️ 下载可执行 SQL 脚本",
-            data=sql_download_content,
-            file_name="data_test_validation.sql",
-            mime="text/plain",
-            use_container_width=True
-        )
+        with st.container(height=450, border=True):
+            st.markdown(sections["三"])
 
 def render_pending_points_data_editor() -> None:
     """
@@ -1771,8 +1826,8 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
 # =========================
 
 st.set_page_config(
-    page_title="自动化数据测试用例生成工具",
-    page_icon="🧪",
+    page_title="PRD 测试用例生成",
+    page_icon=None,
     layout="wide"
 )
 
@@ -1781,10 +1836,9 @@ inject_custom_css()
 st.markdown(
     """
 <div class="app-hero">
-    <div class="app-hero-title">🧪 自动化数据测试用例生成工具</div>
+    <div class="app-hero-title">PRD 测试用例生成工具</div>
     <div class="app-hero-desc">
-        从 PRD、会议纪要、表结构、分区信息和开发代码中提炼数据测试需求，
-        经过待确认点收敛后，自动生成最终版需求提炼、测试用例和 SQL 校验脚本。
+        从 PRD、会议纪要、表结构和开发代码中提炼数据测试需求，自动生成测试用例与 SQL 校验脚本。
     </div>
 </div>
     """,
@@ -1985,7 +2039,7 @@ if st.session_state["current_step"] == STEP_INPUT:
     render_page_header(
         title="1. 输入材料",
         desc="上传或粘贴 PRD，并补充会议纪要、源表表结构、结果表表结构、分区信息和开发代码。",
-        icon="📥"
+        icon=""
     )
 
     # =========================
@@ -1998,7 +2052,7 @@ if st.session_state["current_step"] == STEP_INPUT:
 
     with col_upload:
         with st.container(border=True):
-            st.markdown("#### 📎 上传 PRD 文件")
+            st.markdown("#### 上传 PRD 文件")
 
             prd_file = st.file_uploader(
                 "支持 txt、md、pdf、docx、xlsx、sql、csv、json、py",
@@ -2014,7 +2068,7 @@ if st.session_state["current_step"] == STEP_INPUT:
                 st.success("已读取上传的 PRD 文件。")
 
                 if st.button(
-                    "🗑️ 清除已上传 PRD 内容",
+                    "清除已上传内容",
                     use_container_width=True
                 ):
                     st.session_state["uploaded_prd_text"] = ""
@@ -2025,7 +2079,7 @@ if st.session_state["current_step"] == STEP_INPUT:
 
     with col_manual:
         with st.container(border=True):
-            st.markdown("#### ✍️ 粘贴 PRD 内容")
+            st.markdown("#### 粘贴 PRD 内容")
 
             prd_manual_text = st.text_area(
                 "粘贴 PRD 内容",
@@ -2119,7 +2173,7 @@ if st.session_state["current_step"] == STEP_INPUT:
         if not materials["prd_text"].strip():
             st.warning("请先上传或粘贴 PRD 内容。")
         else:
-            with st.spinner("AI 正在进行第一轮 PRD 分析..."):
+            with st.spinner("正在分析 PRD..."):
                 user_content = f"""
 以下是 PRD 原文：
 
@@ -2196,7 +2250,7 @@ elif st.session_state["current_step"] == STEP_PENDING:
     render_page_header(
         title="2. 待确认点收敛",
         desc="查看 AI 初版需求分析结果，并在待确认点清单中补充说明，支持多轮收敛。",
-        icon="🧩"
+        icon=""
     )
 
     if not st.session_state.get("prd_current_analysis_result"):
@@ -2246,7 +2300,7 @@ elif st.session_state["current_step"] == STEP_PENDING:
         st.session_state["prd_pending_answers"] = "无待确认点。"
 
         if st.button(
-            "✅ 进入第 3 步：生成最终版需求提炼",
+            "进入第 3 步：生成最终版",
             type="primary",
             use_container_width=True
         ):
@@ -2275,7 +2329,7 @@ elif st.session_state["current_step"] == STEP_PENDING:
         if continue_pending_clicked:
             sync_pending_points_from_widgets()
 
-            with st.spinner("AI 正在根据补充说明重新解析待确认点..."):
+            with st.spinner("正在重新解析..."):
                 current_answers = st.session_state["prd_pending_answers"]
 
                 user_content = f"""
@@ -2395,7 +2449,7 @@ elif st.session_state["current_step"] == STEP_PENDING:
         download_content += st.session_state["pending_confirm_history"]
 
     st.download_button(
-        label="⬇️ 下载当前 PRD 分析结果",
+        label="下载 PRD 分析结果",
         data=download_content,
         file_name="prd_当前需求分析和待确认点.md",
         mime="text/markdown",
@@ -2411,7 +2465,7 @@ elif st.session_state["current_step"] == STEP_FINAL:
     render_page_header(
         title="3. 最终版需求提炼",
         desc="基于 PRD、补充说明、表结构、分区信息和待确认点处理记录，生成最终版需求提炼表。",
-        icon="✅"
+        icon=""
     )
 
     if not st.session_state.get("prd_current_analysis_result"):
@@ -2441,11 +2495,11 @@ elif st.session_state["current_step"] == STEP_FINAL:
         st.success("当前无待确认点，可以生成最终版需求提炼表。")
 
     if st.button(
-        "✅ 生成最终版需求提炼表",
+        "生成最终版需求提炼表",
         type="primary",
         use_container_width=True
     ):
-        with st.spinner("AI 正在生成最终版需求提炼表..."):
+        with st.spinner("正在生成最终版..."):
             sync_pending_points_from_widgets()
 
             user_content = f"""
@@ -2519,7 +2573,7 @@ elif st.session_state["current_step"] == STEP_FINAL:
         )
 
         st.download_button(
-            label="⬇️ 下载最终版需求提炼表",
+            label="下载需求提炼表",
             data=st.session_state["prd_final_analysis_result"],
             file_name="prd_最终版需求提炼表.md",
             mime="text/markdown",
@@ -2529,7 +2583,7 @@ elif st.session_state["current_step"] == STEP_FINAL:
         st.divider()
 
         if st.button(
-            "🧪 进入第 4 步：生成测试用例和 SQL",
+            "进入第 4 步：生成测试用例",
             type="primary",
             use_container_width=True
         ):
@@ -2544,7 +2598,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
     render_page_header(
         title="4. 测试用例与 SQL",
         desc="根据最终版需求提炼表生成精简、可定位问题的数据测试用例和 SQL 校验脚本。",
-        icon="🧪"
+        icon=""
     )
 
     if not st.session_state.get("prd_final_analysis_result"):
@@ -2558,11 +2612,11 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
     materials = get_materials_from_state()
 
     if st.button(
-        "🧪 生成测试用例和 SQL 校验脚本",
+        "生成测试用例和 SQL",
         type="primary",
         use_container_width=True
     ):
-        with st.spinner("AI 正在生成测试用例和 SQL 校验脚本..."):
+        with st.spinner("正在生成测试用例..."):
             sync_pending_points_from_widgets()
 
             user_content = f"""

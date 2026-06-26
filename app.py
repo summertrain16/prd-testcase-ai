@@ -835,8 +835,6 @@ def go_to_step(step_name: str) -> None:
     st.session_state["current_step"] = step_name
     st.rerun()
 
-def on_step_radio_change() -> None:
-    st.session_state["current_step"] = st.session_state["current_step_radio"]
 
 def get_materials_from_state() -> dict:
     return {
@@ -1456,6 +1454,29 @@ div[class*="stButton"] button[kind="primary"]:hover * {
     fill: #FFFFFF !important;
 }
 
+/* element 间距 */
+.element-container {
+    margin-bottom: 8px;
+}
+/* ===== 顶部步骤导航按钮 ===== */
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
+    min-height: 44px;
+    border-radius: 8px !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+}
+/* 顶部当前步骤 primary 按钮文字强制白色 */
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"],
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[data-testid="stBaseButton-primary"] {
+    background: #2563EB !important;
+    border-color: #2563EB !important;
+    color: #FFFFFF !important;
+}
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"] *,
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[data-testid="stBaseButton-primary"] * {
+    color: #FFFFFF !important;
+}
+
 </style>
         """,
         unsafe_allow_html=True
@@ -1479,7 +1500,7 @@ def render_markdown_in_scroll_box(
 
 def render_step_progress() -> None:
     """
-    顶部流程进度展示。
+    顶部流程进度展示 + 步骤点击切换。
     """
     current_step = st.session_state.get("current_step", STEP_INPUT)
 
@@ -1489,37 +1510,51 @@ def render_step_progress() -> None:
         current_index = 0
 
     progress_value = (current_index + 1) / len(STEP_OPTIONS)
-
     st.progress(progress_value)
 
     cols = st.columns(len(STEP_OPTIONS))
 
-    icons = ["", "", "", ""]
-
     for index, step in enumerate(STEP_OPTIONS):
         if index < current_index:
             status = "已完成"
-            card_class = "step-card step-card-done"
             status_icon = "—"
+            button_type = "secondary"
         elif index == current_index:
             status = "当前步骤"
-            card_class = "step-card step-card-active"
             status_icon = "●"
+            button_type = "primary"
         else:
             status = "待处理"
-            card_class = "step-card"
             status_icon = "○"
+            button_type = "secondary"
 
         with cols[index]:
+            clicked = st.button(
+                step,
+                key=f"top_step_nav_{index}",
+                type=button_type,
+                use_container_width=True,
+                help=f"{status_icon} {status}"
+            )
+
             st.markdown(
                 f"""
-<div class="{card_class}">
-    <div class="step-card-title">{step}</div>
-    <div class="step-card-status">{status_icon} {status}</div>
+<div style="
+    text-align:center;
+    font-size:11px;
+    color:#94A3B8;
+    margin-top:-4px;
+    margin-bottom:8px;
+">
+    {status_icon} {status}
 </div>
                 """,
                 unsafe_allow_html=True
             )
+
+            if clicked:
+                st.session_state["current_step"] = step
+                st.rerun()
 
     st.write("")
 
@@ -2037,25 +2072,7 @@ with st.sidebar:
         else:
             st.warning("请填写 API Key")
 
-    # 步骤导航放在中心位置
-    st.header("步骤导航")
-    current_step_value = st.session_state.get("current_step", STEP_INPUT)
-    if current_step_value not in STEP_OPTIONS:
-        current_step_value = STEP_INPUT
-        st.session_state["current_step"] = STEP_INPUT
-    # 如果是代码自动跳转，例如 go_to_step(STEP_PENDING)，这里同步侧边栏 radio 的显示值
-    if st.session_state.get("current_step_radio") != current_step_value:
-        st.session_state["current_step_radio"] = current_step_value
-    st.radio(
-        "选择当前步骤",
-        STEP_OPTIONS,
-        label_visibility="collapsed",
-        key="current_step_radio",
-        on_change=on_step_radio_change
-    )
-
     st.divider()
-
     if st.button("清空全部结果", use_container_width=True):
         st.session_state["prd_draft_analysis_result"] = ""
         st.session_state["prd_pending_answers"] = ""

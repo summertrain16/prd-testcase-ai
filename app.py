@@ -1181,7 +1181,7 @@ h1, h2, h3 {
 .app-hero {
     padding: 28px 32px;
     border-radius: 10px;
-    background: #0F172A;
+    background: #1E293B;
     margin-bottom: 24px;
 }
 
@@ -1211,8 +1211,8 @@ h1, h2, h3 {
 }
 
 .step-card-active {
-    border: 1px solid #0F172A;
-    background: #0F172A;
+    border: 1px solid #475569;
+    background: #475569;
 }
 
 .step-card-done {
@@ -1284,21 +1284,21 @@ h1, h2, h3 {
 
 .stButton > button:hover,
 .stDownloadButton > button:hover {
-    border-color: #0F172A !important;
+    border-color: #475569 !important;
     background: #F8FAFC !important;
 }
 
 /* primary 按钮 */
 .stButton > button[kind="primary"],
 div[data-testid="stButton"] > button[kind="primary"] {
-    background: #0F172A !important;
+    background: #475569 !important;
     color: #F8FAFC !important;
-    border: 1px solid #0F172A !important;
+    border: 1px solid #475569 !important;
 }
 
 .stButton > button[kind="primary"]:hover {
-    background: #1E293B !important;
-    border-color: #1E293B !important;
+    background: #334155 !important;
+    border-color: #334155 !important;
 }
 
 /* ===== 输入框 ===== */

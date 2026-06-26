@@ -1181,7 +1181,7 @@ h1, h2, h3 {
 .app-hero {
     padding: 28px 32px;
     border-radius: 10px;
-    background: #1E293B;
+    background: #2563EB;
     margin-bottom: 24px;
 }
 
@@ -1211,8 +1211,8 @@ h1, h2, h3 {
 }
 
 .step-card-active {
-    border: 1px solid #475569;
-    background: #475569;
+    border: 1px solid #2563EB;
+    background: #2563EB;
 }
 
 .step-card-done {
@@ -1277,28 +1277,28 @@ h1, h2, h3 {
     font-weight: 500 !important;
     font-size: 13px !important;
     transition: all 0.12s ease;
-    border: 1px solid #E2E8F0 !important;
+    border: 1px solid #DBEAFE !important;
     background: #FFFFFF !important;
-    color: #0F172A !important;
+    color: #2563EB !important;
 }
 
 .stButton > button:hover,
 .stDownloadButton > button:hover {
-    border-color: #475569 !important;
-    background: #F8FAFC !important;
+    border-color: #2563EB !important;
+    background: #EFF6FF !important;
 }
 
 /* primary 按钮 */
 .stButton > button[kind="primary"],
 div[data-testid="stButton"] > button[kind="primary"] {
-    background: #475569 !important;
-    color: #F8FAFC !important;
-    border: 1px solid #475569 !important;
+    background: #2563EB !important;
+    color: #FFFFFF !important;
+    border: 1px solid #2563EB !important;
 }
 
 .stButton > button[kind="primary"]:hover {
-    background: #334155 !important;
-    border-color: #334155 !important;
+    background: #1D4ED8 !important;
+    border-color: #1D4ED8 !important;
 }
 
 /* ===== 输入框 ===== */
@@ -1415,7 +1415,7 @@ def render_step_progress() -> None:
 
     cols = st.columns(len(STEP_OPTIONS))
 
-    icons = ["01", "02", "03", "04"]
+    icons = ["", "", "", ""]
 
     for index, step in enumerate(STEP_OPTIONS):
         if index < current_index:
@@ -1435,7 +1435,7 @@ def render_step_progress() -> None:
             st.markdown(
                 f"""
 <div class="{card_class}">
-    <div class="step-card-title">{icons[index]} {step}</div>
+    <div class="step-card-title">{step}</div>
     <div class="step-card-status">{status_icon} {status}</div>
 </div>
                 """,
@@ -1920,44 +1920,45 @@ for key, default_value in material_state_defaults.items():
 # =========================
 
 with st.sidebar:
-    st.header("模型配置")
-    st.caption("每个用户填写自己的 API Key，互不影响。配置仅保存在浏览器当前会话中。")
+    # 模型配置折叠起来
+    with st.expander("模型配置", expanded=False):
+        st.caption("每个用户填写自己的 API Key，互不影响。配置仅保存在浏览器当前会话中。")
 
-    # 初始化 session_state（用 .env 作为默认值）
-    if "user_openai_api_key" not in st.session_state:
-        st.session_state["user_openai_api_key"] = _ENV_API_KEY
-    if "user_openai_base_url" not in st.session_state:
-        st.session_state["user_openai_base_url"] = _ENV_BASE_URL
-    if "user_openai_model" not in st.session_state:
-        st.session_state["user_openai_model"] = _ENV_MODEL
+        # 初始化 session_state（用 .env 作为默认值）
+        if "user_openai_api_key" not in st.session_state:
+            st.session_state["user_openai_api_key"] = _ENV_API_KEY
+        if "user_openai_base_url" not in st.session_state:
+            st.session_state["user_openai_base_url"] = _ENV_BASE_URL
+        if "user_openai_model" not in st.session_state:
+            st.session_state["user_openai_model"] = _ENV_MODEL
 
-    st.text_input(
-        "API Key",
-        key="user_openai_api_key",
-        type="password",
-        placeholder="sk-xxxx",
-        help="你的 LLM API Key，例如 sk-xxx"
-    )
-    st.text_input(
-        "Base URL",
-        key="user_openai_base_url",
-        placeholder="http://xxx/v1",
-        help="LLM 接口地址，注意以 /v1 结尾"
-    )
-    st.text_input(
-        "Model",
-        key="user_openai_model",
-        placeholder="gpt-4o-mini",
-        help="模型名称"
-    )
+        st.text_input(
+            "API Key",
+            key="user_openai_api_key",
+            type="password",
+            placeholder="sk-xxxx",
+            help="你的 LLM API Key，例如 sk-xxx"
+        )
+        st.text_input(
+            "Base URL",
+            key="user_openai_base_url",
+            placeholder="http://xxx/v1",
+            help="LLM 接口地址，注意以 /v1 结尾"
+        )
+        st.text_input(
+            "Model",
+            key="user_openai_model",
+            placeholder="gpt-4o-mini",
+            help="模型名称"
+        )
 
-    configured = bool(st.session_state.get("user_openai_api_key", "").strip())
-    if configured:
-        st.success("API Key 已配置")
-    else:
-        st.warning("请填写 API Key")
+        configured = bool(st.session_state.get("user_openai_api_key", "").strip())
+        if configured:
+            st.success("API Key 已配置")
+        else:
+            st.warning("请填写 API Key")
 
-    st.divider()
+    # 步骤导航放在中心位置
     st.header("步骤导航")
     current_step_value = st.session_state.get("current_step", STEP_INPUT)
     if current_step_value not in STEP_OPTIONS:
@@ -1973,34 +1974,6 @@ with st.sidebar:
         key="current_step_radio",
         on_change=on_step_radio_change
     )
-
-    st.divider()
-    st.header("流程状态")
-    if st.session_state.get("prd_current_analysis_result"):
-        st.success("1. 初版解析：已完成")
-    else:
-        st.info("1. 初版解析：未完成")
-
-    if st.session_state.get("pending_points_rows"):
-        if st.session_state.get("ignore_remaining_pending_points", False):
-            st.warning("2. 待确认点：已选择忽略")
-        else:
-            st.warning(f"2. 待确认点：剩余 {len(st.session_state['pending_points_rows'])} 条")
-    else:
-        if st.session_state.get("prd_current_analysis_result"):
-            st.success("2. 待确认点：无")
-        else:
-            st.info("2. 待确认点：等待初版解析")
-
-    if st.session_state.get("prd_final_analysis_result"):
-        st.success("3. 最终版：已生成")
-    else:
-        st.info("3. 最终版：未生成")
-
-    if st.session_state.get("test_case_result"):
-        st.success("4. 测试用例：已生成")
-    else:
-        st.info("4. 测试用例：未生成")
 
     st.divider()
 

@@ -1457,20 +1457,50 @@ def build_vscode_runnable_sql_download_content(result_text: str) -> str:
 """
     return sql_file_content
 
+def _split_sections_by_heading(result_text: str, headings: list) -> dict:
+    """
+    按 heading 关键词将 result_text 拆分为多段。
+    headings 示例: ["一", "二", "三"]
+    返回: {"一": "...", "二": "...", "三": "..."}
+    每个 value 包含从该标题到下一个标题前的完整内容（含标题行）。
+    """
+    # 构建正则：匹配 ## 一、 或 ## 一. 或 ## 一． 等
+    patterns = {}
+    for h in headings:
+        patterns[h] = re.compile(
+            rf"(?m)^(#{{1,6}})\s*{h}[、.．]"
+        )
+
+    # 找到每个标题的位置
+    positions = []
+    for h, p in patterns.items():
+        m = p.search(result_text)
+        if m:
+            positions.append((m.start(), h, m))
+    positions.sort(key=lambda x: x[0])
+
+    sections = {}
+    for i, (start, h, m) in enumerate(positions):
+        end = positions[i + 1][0] if i + 1 < len(positions) else len(result_text)
+        sections[h] = result_text[start:end].strip()
+
+    return sections
+
+
 def render_test_case_result_with_download(result_text: str) -> None:
     """
-    渲染测试用例结果，并把 SQL 下载按钮插入到“三、SQL 校验脚本”标题下方、SQL 内容上方。
-    下载文件为 .sql，可在 VSCode 中打开运行。
+    渲染测试用例结果，将一、二、三三个章节分开展示，不包在一个容器里。
+    SQL 下载按钮放在"三、SQL 校验脚本"标题下方。
     """
     if not result_text:
         return
 
-    pattern = r"(?m)^(#{1,6})\s*三[、.．]\s*SQL\s*校验脚本\s*$"
-    match = re.search(pattern, result_text)
-
     sql_download_content = build_vscode_runnable_sql_download_content(result_text)
 
-    if not match:
+    sections = _split_sections_by_heading(result_text, ["一", "二", "三"])
+
+    # 如果没匹配到任何章节标题，退回整段渲染
+    if not sections:
         st.download_button(
             label="⬇️ 下载可执行 SQL 脚本",
             data=sql_download_content,
@@ -1478,31 +1508,40 @@ def render_test_case_result_with_download(result_text: str) -> None:
             mime="text/plain",
             use_container_width=True
         )
-
         st.markdown(result_text)
         return
 
-    before_sql_section = result_text[:match.start()].strip()
-    sql_heading = match.group(0)
-    sql_body = result_text[match.end():].strip()
+    # 一、测试关注点
+    if "一" in sections:
+        st.markdown(sections["一"])
 
-    if before_sql_section:
-        st.markdown(before_sql_section)
+    st.divider()
 
-    # 展示“三、SQL 校验脚本”标题
-    st.markdown(sql_heading)
+    # 二、测试用例清单
+    if "二" in sections:
+        st.markdown(sections["二"])
 
-    # 下载按钮放在“三、SQL 校验脚本”下最前面
-    st.download_button(
-        label="下载可执行 SQL 脚本",
-        data=sql_download_content,
-        file_name="data_test_validation.sql",
-        mime="text/plain",
-        use_container_width=True
-    )
+    st.divider()
 
-    if sql_body:
-        st.markdown(sql_body)
+    # 三、SQL 校验脚本（含下载按钮）
+    if "三" in sections:
+        st.markdown(sections["三"])
+        st.download_button(
+            label="下载可执行 SQL 脚本",
+            data=sql_download_content,
+            file_name="data_test_validation.sql",
+            mime="text/plain",
+            use_container_width=True
+        )
+    else:
+        # 没有匹配到"三"，兜底放下载按钮
+        st.download_button(
+            label="⬇️ 下载可执行 SQL 脚本",
+            data=sql_download_content,
+            file_name="data_test_validation.sql",
+            mime="text/plain",
+            use_container_width=True
+        )
 
 def render_pending_points_data_editor() -> None:
     """
@@ -2587,11 +2626,9 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
     if st.session_state["test_case_result"]:
         st.subheader("测试用例和 SQL 校验脚本")
 
-        with st.expander("查看测试用例和 SQL 校验脚本", expanded=True):
-            with st.container(height=720, border=True):
-                render_test_case_result_with_download(
-                    st.session_state["test_case_result"]
-                )
+        render_test_case_result_with_download(
+            st.session_state["test_case_result"]
+        )
 else:
     st.warning("当前步骤状态异常，已返回第 1 步。")
     st.session_state["current_step"] = STEP_INPUT

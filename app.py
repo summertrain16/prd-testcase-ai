@@ -1302,17 +1302,27 @@ p, li {
     color: #0F172A !important;
 }
 
-/* primary 按钮 — 唯一用蓝色的地方 */
+/* primary 按钮 — 蓝底白字，覆盖所有可能的选择器 */
 .stButton > button[kind="primary"],
-div[data-testid="stButton"] > button[kind="primary"] {
+div[data-testid="stButton"] > button[kind="primary"],
+.stButton > button[data-testid="stBaseButton-primary"],
+div[data-testid="stButton"] button[data-testid="stBaseButton-primary"],
+button[kind="primary"],
+button[data-testid="stBaseButton-primary"] {
     background: #2563EB !important;
     color: #FFFFFF !important;
     border: 1px solid #2563EB !important;
+    font-weight: 500 !important;
 }
 
-.stButton > button[kind="primary"]:hover {
+.stButton > button[kind="primary"]:hover,
+div[data-testid="stButton"] > button[kind="primary"]:hover,
+.stButton > button[data-testid="stBaseButton-primary"]:hover,
+button[kind="primary"]:hover,
+button[data-testid="stBaseButton-primary"]:hover {
     background: #1D4ED8 !important;
     border-color: #1D4ED8 !important;
+    color: #FFFFFF !important;
 }
 
 /* ===== 输入框 ===== */

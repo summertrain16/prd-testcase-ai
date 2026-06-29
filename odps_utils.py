@@ -84,8 +84,7 @@ def get_table_schema_text(odps_entry, table_name):
 def preview_table_data(odps_entry, table_name, partition="", limit=20):
     """预览表数据，返回 DataFrame。
 
-    对于分区表，必须传 partition 参数（例如 pt='20250101'），
-    否则全表扫描会触发底层 "Unsupported getitem value: None" 错误。
+    用 tunnel reader 读取，绕过 execute_sql open_reader 的 schema 问题。
 
     参数：
         odps_entry: ODPS 连接对象
@@ -96,29 +95,33 @@ def preview_table_data(odps_entry, table_name, partition="", limit=20):
     返回：
         pandas DataFrame。
     """
-    if partition.strip():
-        sql = f"SELECT * FROM {table_name} WHERE {partition.strip()} LIMIT {limit};"
-    else:
-        sql = f"SELECT * FROM {table_name} LIMIT {limit};"
-    instance = odps_entry.execute_sql(sql)
-    with instance.open_reader() as reader:
-        # 兼容不同 pyodps 版本：优先用 _schema，降级用 reader 的其他属性
-        if reader._schema is not None and reader._schema.columns:
-            cols = [c.name for c in reader._schema.columns]
-        else:
-            # 降级：从第一条记录的 values 长度推断列数
-            cols = None
+    t = odps_entry.get_table(table_name)
+
+    # 构造分区过滤条件
+    partition_spec = partition.strip() if partition.strip() else None
+
+    with t.open_reader(partition=partition_spec, limit=limit) as reader:
+        # 从表 schema 取列名（包含普通列，不含分区列）
+        col_names = [col.name for col in t.schema.columns]
+
+        # 分区列也要加上（tunnel reader 返回的行里包含分区列值）
+        if t.schema.partitions:
+            for pcol in t.schema.partitions:
+                if pcol.name not in col_names:
+                    col_names.append(pcol.name)
+
         rows = []
-        for r in reader:
-            row_values = r.values
-            # 逐个处理 None，避免底层 getitem 报错
-            safe_values = [v if v is not None else "" for v in row_values]
-            rows.append(safe_values)
-        if cols is None and rows:
-            cols = [f"col_{i}" for i in range(len(rows[0]))]
-        elif cols is None:
-            cols = []
-    return pd.DataFrame(rows, columns=cols)
+        for record in reader:
+            row = []
+            for col_name in col_names:
+                try:
+                    val = record[col_name]
+                except Exception:
+                    val = None
+                row.append(val if val is not None else "")
+            rows.append(row)
+
+    return pd.DataFrame(rows, columns=col_names)
 
 
 def is_partitioned_table(odps_entry, table_name):

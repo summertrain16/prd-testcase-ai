@@ -12,7 +12,7 @@ from pypdf import PdfReader
 from docx import Document
 from openpyxl import load_workbook
 
-from odps_utils import get_odps_entry, get_table_schema_text, preview_table_data, run_single_sql
+from odps_utils import get_odps_entry, get_table_schema_text, preview_table_data, run_single_sql, test_odps_connection
 
 STEP_INPUT = "1. 输入材料"
 STEP_PENDING = "2. 待确认点收敛"
@@ -2209,16 +2209,22 @@ with st.sidebar:
 
     # ===== 新增：ODPS 连接配置 =====
     with st.expander("ODPS 连接配置", expanded=False):
-        st.caption("连接 MaxCompute/DataWorks，用于在线拉表结构和执行 SQL。不配置仍可用 xlsx 上传。")
+        st.caption("连接 MaxCompute/DataWorks。配置一次后同一会话内不丢失。也可在 Streamlit Cloud Settings → Secrets 里持久化。")
+
+        # 从 st.secrets 读默认值（如果配了的话）
+        _secrets_endpoint = st.secrets.get("odps_endpoint", "") if hasattr(st, 'secrets') else ""
+        _secrets_project = st.secrets.get("odps_project", "") if hasattr(st, 'secrets') else ""
+        _secrets_ak = st.secrets.get("odps_ak", "") if hasattr(st, 'secrets') else ""
+        _secrets_sk = st.secrets.get("odps_sk", "") if hasattr(st, 'secrets') else ""
 
         if "odps_endpoint" not in st.session_state:
-            st.session_state["odps_endpoint"] = ""
+            st.session_state["odps_endpoint"] = _secrets_endpoint
         if "odps_project" not in st.session_state:
-            st.session_state["odps_project"] = ""
+            st.session_state["odps_project"] = _secrets_project
         if "odps_ak" not in st.session_state:
-            st.session_state["odps_ak"] = ""
+            st.session_state["odps_ak"] = _secrets_ak
         if "odps_sk" not in st.session_state:
-            st.session_state["odps_sk"] = ""
+            st.session_state["odps_sk"] = _secrets_sk
 
         st.text_input("Endpoint", key="odps_endpoint",
             placeholder="http://service.odps.aliyun.com/api",
@@ -2229,11 +2235,47 @@ with st.sidebar:
         st.text_input("AccessKey ID", key="odps_ak", type="password")
         st.text_input("AccessKey Secret", key="odps_sk", type="password")
 
-        odps_connected = bool(st.session_state.get("odps_ak", "").strip())
-        if odps_connected:
-            st.success("已填写 ODPS 配置")
-        else:
-            st.info("未配置 ODPS，仍可用 xlsx 上传表结构")
+        _c_test, _c_status = st.columns([1, 2])
+        with _c_test:
+            if st.button("测试连接", key="test_odps_btn", use_container_width=True):
+                _test_entry = get_odps_entry(
+                    st.session_state.get("odps_ak", "").strip(),
+                    st.session_state.get("odps_sk", "").strip(),
+                    st.session_state.get("odps_project", "").strip(),
+                    st.session_state.get("odps_endpoint", "").strip(),
+                )
+                if _test_entry is None:
+                    st.error("请先填写 Endpoint、AccessKey ID、AccessKey Secret")
+                else:
+                    with st.spinner("测试中..."):
+                        _ok, _msg = test_odps_connection(_test_entry)
+                    if _ok:
+                        st.success(_msg)
+                    else:
+                        st.error(f"连接失败：{_msg}")
+        with _c_status:
+            _has_ak = bool(st.session_state.get("odps_ak", "").strip())
+            if _has_ak:
+                st.caption("已填写配置。如需持久化，见下方说明。")
+            else:
+                st.info("未配置 ODPS，仍可用 xlsx 上传")
+
+        # 持久化提示
+        if not _secrets_ak:
+            with st.expander("如何让配置不丢失？", expanded=False):
+                st.markdown("""
+在 Streamlit Cloud 管理台 → 你的 app → Settings → Secrets 中添加：
+
+```toml
+odps_endpoint = "http://service.odps.aliyun.com/api"
+odps_project = "你的项目名"
+odps_ak = "你的AccessKey ID"
+odps_sk = "你的AccessKey Secret"
+```
+
+保存后重启 app，配置会自动填入，不用每次手填。
+本地运行则在项目根目录建 `.streamlit/secrets.toml`，格式同上。
+""")
 
     st.divider()
     if st.button("清空全部结果", use_container_width=True):
@@ -2264,6 +2306,10 @@ with st.sidebar:
         # 清空 ODPS 表结构相关 state
         st.session_state["source_schema_mode"] = ""
         st.session_state["result_schema_mode"] = ""
+        # 清空 SQL 执行结果缓存
+        st.session_state["sql_run_results"] = {}
+        # 清空 ODPS 连接缓存（下次用新配置重建）
+        get_odps_entry.clear()
         st.rerun()
 
 # =========================

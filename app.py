@@ -2090,9 +2090,9 @@ with st.sidebar:
         st.text_input("Endpoint", key="odps_endpoint",
             placeholder="http://service.odps.aliyun.com/api",
             help="MaxCompute 访问地址。公网一般填 http://service.odps.aliyun.com/api")
-        st.text_input("Project", key="odps_project",
-            placeholder="MaxCompute 项目名",
-            help="你在 DataWorks/MaxCompute 里的项目名")
+        st.text_input("Project（可选，默认项目）", key="odps_project",
+            placeholder="例如：ods_project。留空也行，表名带前缀即可",
+            help="默认 MaxCompute 项目名。留空时表名要写 项目名.表名 跨项目查")
         st.text_input("AccessKey ID", key="odps_ak", type="password")
         st.text_input("AccessKey Secret", key="odps_sk", type="password")
 
@@ -2234,12 +2234,12 @@ if st.session_state["current_step"] == STEP_INPUT:
 
         if _odps_entry:
             with st.expander("从 MaxCompute 在线拉取表结构（可选）", expanded=False):
-                st.caption("输入表名，直接从 ODPS 拉取表结构和数据预览，替代手动上传 xlsx。拉取到的表结构会自动填入下方『源表表结构』。")
+                st.caption("输入表名（支持 项目名.表名 跨项目），拉取表结构和数据预览。多次拉取会累加到源表表结构。")
 
                 _odps_table_input = st.text_input(
                     "表名",
                     key="odps_table_input",
-                    placeholder="例如：ods_order_detail_di"
+                    placeholder="例如：dwd_project.dwd_order_detail_di 或 ods_order_detail_di"
                 )
 
                 _col_fetch, _col_preview = st.columns(2)
@@ -2253,10 +2253,14 @@ if st.session_state["current_step"] == STEP_INPUT:
                 if _fetch_schema_clicked and _odps_table_input.strip():
                     with st.spinner("正在拉取表结构..."):
                         try:
-                            _schema_text = get_table_schema_text(_odps_entry, _odps_table_input.strip())
-                            st.session_state["odps_schema_text"] = _schema_text
-                            st.session_state["source_table_schema"] = _schema_text
-                            st.success(f"已拉取 {_odps_table_input.strip()} 的表结构，已填入源表表结构。")
+                            _new_schema = get_table_schema_text(_odps_entry, _odps_table_input.strip())
+                            _existing = st.session_state.get("odps_schema_text", "")
+                            if _existing:
+                                st.session_state["odps_schema_text"] = _existing + "\n\n" + _new_schema
+                            else:
+                                st.session_state["odps_schema_text"] = _new_schema
+                            st.session_state["source_table_schema"] = st.session_state["odps_schema_text"]
+                            st.success(f"已拉取 {_odps_table_input.strip()} 的表结构，已追加到源表表结构。")
                         except Exception as e:
                             st.error(f"拉取失败：{e}")
 
@@ -2270,12 +2274,16 @@ if st.session_state["current_step"] == STEP_INPUT:
 
                 if st.session_state.get("odps_schema_text"):
                     st.text_area(
-                        "拉取到的表结构",
+                        "已拉取的表结构（可多次累加）",
                         value=st.session_state["odps_schema_text"],
                         height=200,
                         disabled=True,
                         key="odps_schema_text_preview"
                     )
+                    if st.button("清空已拉取的表结构", use_container_width=True):
+                        st.session_state["odps_schema_text"] = ""
+                        st.session_state["source_table_schema"] = ""
+                        st.rerun()
 
             st.divider()
 

@@ -71,9 +71,9 @@ def inject_custom_css() -> None:
 }
 
 /* 字体层级 */
-h1 { font-size: 20px !important; font-weight: 600 !important; letter-spacing: -0.02em; color: #0F172A; }
-h2 { font-size: 16px !important; font-weight: 600 !important; letter-spacing: -0.01em; color: #0F172A; }
-h3 { font-size: 14px !important; font-weight: 600 !important; color: #334155; }
+h1 { font-size: 26px !important; font-weight: 700 !important; letter-spacing: -0.02em; color: #0F172A; }
+h2 { font-size: 22px !important; font-weight: 700 !important; letter-spacing: -0.01em; color: #0F172A; }
+h3 { font-size: 18px !important; font-weight: 600 !important; color: #0F172A; }
 
 /* 正文 */
 p, li {
@@ -168,16 +168,16 @@ p, li {
 }
 
 .page-section-title {
-    font-size: 18px;
-    font-weight: 600;
+    font-size: 24px;
+    font-weight: 700;
     color: #0F172A;
     margin-bottom: 2px;
     letter-spacing: -0.01em;
 }
 
 .page-section-desc {
-    font-size: 13px;
-    color: #94A3B8;
+    font-size: 14px;
+    color: #64748B;
     line-height: 1.5;
 }
 
@@ -298,20 +298,29 @@ pre {
 /* ===== markdown 表格 ===== */
 table {
     border-radius: 6px;
-    overflow: hidden;
+    overflow: visible;
     border: 1px solid #E2E8F0 !important;
+    width: 100% !important;
+    table-layout: auto !important;
 }
 
 th {
     font-weight: 600 !important;
-    font-size: 12px !important;
+    font-size: 13px !important;
     background: #F8FAFC !important;
     color: #475569 !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
 }
 
 td {
     font-size: 13px !important;
     color: #334155 !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    vertical-align: top !important;
 }
 
 /* ===== tab ===== */
@@ -411,7 +420,9 @@ def render_markdown_in_scroll_box(
 
     with st.expander(title, expanded=expanded):
         with st.container(height=height, border=True):
+            st.markdown(f'<div style="word-wrap: break-word; overflow-wrap: break-word;">', unsafe_allow_html=True)
             st.markdown(markdown_text)
+            st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_step_progress() -> None:
@@ -608,33 +619,33 @@ def render_test_case_result_with_download(result_text: str) -> None:
 
     # 如果没匹配到任何章节标题，退回整段渲染（放在可滚动容器里）
     if not sections:
-        with st.container(height=400, border=True):
+        with st.container(height=600, border=True):
             st.markdown(result_text)
         return
 
     # 一、测试关注点 — 可滚动容器
     if "一" in sections:
-        with st.container(height=350, border=True):
+        with st.container(height=500, border=True):
             st.markdown(sections["一"])
 
     st.divider()
 
     # 二、测试用例清单 — 可滚动容器
     if "二" in sections:
-        with st.container(height=400, border=True):
+        with st.container(height=600, border=True):
             st.markdown(sections["二"])
 
     st.divider()
 
     # 三、SQL 校验脚本 — 可滚动容器
     if "三" in sections:
-        with st.container(height=450, border=True):
+        with st.container(height=700, border=True):
             st.markdown(sections["三"])
 
 
 def render_pending_points_data_editor() -> None:
     """
-    使用 st.data_editor 紧凑展示待确认点，只允许编辑"用户补充说明"列。
+    逐行展示待确认点，每行用 text_area 填写补充说明，避免横向滚动。
     """
     rows = st.session_state.get("pending_points_rows", [])
 
@@ -643,59 +654,36 @@ def render_pending_points_data_editor() -> None:
         st.session_state["prd_pending_answers"] = "无待确认点。"
         return
 
-    df = pd.DataFrame(rows)
+    for i, row in enumerate(rows):
+        _pending_id = str(row.get("待确认编号", "")).strip()
+        _question = str(row.get("待确认问题", "")).strip()
+        _impact = str(row.get("影响范围", "")).strip()
+        _suggestion = str(row.get("建议用户补充内容", "")).strip()
 
-    for col in PENDING_POINT_COLUMNS:
-        if col not in df.columns:
-            df[col] = ""
+        with st.container(border=True):
+            # 编号 + 问题
+            st.markdown(f"**{_pending_id}. {_question}**")
 
-    df = df[PENDING_POINT_COLUMNS].fillna("")
+            # 影响范围 + 建议补充（自动换行，不横向滚动）
+            if _impact:
+                st.caption(f"**影响范围：** {_impact}")
+            if _suggestion:
+                st.caption(f"**建议补充：** {_suggestion}")
 
-    editor_key = f"pending_points_data_editor_{st.session_state.get('pending_points_editor_version', 0)}"
+            # 用户补充说明 — text_area，宽度撑满，自动换行
+            _answer_key = get_pending_answer_key(row, i)
+            _answer_val = st.text_area(
+                "用户补充说明",
+                value=str(row.get("用户补充说明", "")).strip(),
+                key=_answer_key,
+                height=80,
+                placeholder="请在这里填写确认结果...",
+                label_visibility="collapsed"
+            )
+            row["用户补充说明"] = _answer_val.strip()
 
-    edited_df = st.data_editor(
-        df,
-        key=editor_key,
-        hide_index=True,
-        use_container_width=True,
-        height=min(460, 110 + len(df) * 58),
-        disabled=[
-            "待确认编号",
-            "待确认问题",
-            "影响范围",
-            "建议用户补充内容"
-        ],
-        column_config={
-            "待确认编号": st.column_config.TextColumn(
-                "待确认编号",
-                width="small"
-            ),
-            "待确认问题": st.column_config.TextColumn(
-                "待确认问题",
-                width="large"
-            ),
-            "影响范围": st.column_config.TextColumn(
-                "影响范围",
-                width="medium"
-            ),
-            "建议用户补充内容": st.column_config.TextColumn(
-                "建议用户补充内容",
-                width="large"
-            ),
-            "用户补充说明": st.column_config.TextColumn(
-                "用户补充说明，可编辑",
-                width="large",
-                help="请在这里填写确认结果；如果认为可忽略，也可以不填并点击忽略。"
-            ),
-        },
-        num_rows="fixed"
-    )
-
-    st.session_state["pending_points_rows"] = edited_df.fillna("").to_dict("records")
-
-    st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
-        st.session_state["pending_points_rows"]
-    )
+    st.session_state["pending_points_rows"] = rows
+    st.session_state["prd_pending_answers"] = pending_points_to_llm_text(rows)
 
 
 def sync_pending_points_from_widgets() -> None:

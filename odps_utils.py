@@ -14,14 +14,15 @@ def get_odps_entry(ak, sk, project, endpoint):
     参数：
         ak: AccessKey ID
         sk: AccessKey Secret
-        project: MaxCompute 项目名
+        project: 默认 MaxCompute 项目名（可留空，表名带项目前缀即可跨项目）
         endpoint: MaxCompute endpoint，例如 http://service.odps.aliyun.com/api
 
     返回：
-        ODPS 连接对象；四项任一为空则返回 None。
+        ODPS 连接对象；ak/sk/endpoint 三项任一为空则返回 None。project 可空。
     """
-    if not all([ak, sk, project, endpoint]):
+    if not all([ak, sk, endpoint]):
         return None
+    project = project.strip() if project else None
     return ODPS(ak, sk, project=project, endpoint=endpoint)
 
 

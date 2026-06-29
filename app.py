@@ -423,13 +423,10 @@ if st.session_state["current_step"] == STEP_INPUT:
         "第一步会根据 PRD、会议纪要、表结构、分区信息、开发代码进行初版分析；不确定的内容会放到待确认点中。"
     )
 
-    _btn_col1, _btn_col2, _btn_col3 = st.columns([2, 1, 2])
-    with _btn_col2:
-        _generate_draft_clicked = st.button(
-            "🚀 生成初版需求提炼和待确认点",
-            type="primary",
-            use_container_width=True
-        )
+    _generate_draft_clicked = st.button(
+        "🚀 生成初版需求提炼和待确认点",
+        type="primary"
+    )
 
     if _generate_draft_clicked:
         materials = get_materials_from_state()
@@ -520,16 +517,18 @@ elif st.session_state["current_step"] == STEP_PENDING:
     if not st.session_state.get("prd_current_analysis_result"):
         st.warning("请先完成第 1 步：输入材料并生成初版需求分析。")
 
-        _back1_c1, _back1_c2, _back1_c3 = st.columns([2, 1, 2])
-        with _back1_c2:
-            if st.button("返回第 1 步", use_container_width=True):
-                go_to_step(STEP_INPUT)
+        if st.button("返回第 1 步"):
+            go_to_step(STEP_INPUT)
 
         st.stop()
 
     materials = get_materials_from_state()
 
     st.subheader("当前需求分析结果")
+
+    current_without_pending_points = remove_pending_points_section(
+        st.session_state["prd_current_analysis_result"]
+    )
 
     # ===== 下载 PRD 分析结果（Excel） =====
     _download_excel_data = io.BytesIO()
@@ -557,21 +556,15 @@ elif st.session_state["current_step"] == STEP_PENDING:
 
     _download_excel_data.seek(0)
 
-    _dl_col1, _dl_col2, _dl_col3 = st.columns([2, 1, 2])
-    with _dl_col2:
-        st.download_button(
-            label="📥 下载 PRD 分析结果（Excel）",
-            data=_download_excel_data,
-            file_name="prd_当前需求分析和待确认点.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    st.download_button(
+        label="📥 下载 PRD 分析结果（Excel）",
+        data=_download_excel_data,
+        file_name="prd_当前需求分析和待确认点.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
     st.caption(
         f"当前待确认点解析轮次：第 {st.session_state.get('pending_analysis_round', 1)} 轮"
-    )
-
-    current_without_pending_points = remove_pending_points_section(
-        st.session_state["prd_current_analysis_result"]
     )
 
     if st.session_state["pending_points_rows"]:
@@ -600,13 +593,10 @@ elif st.session_state["current_step"] == STEP_PENDING:
         st.success("当前没有阻塞测试设计或 SQL 校验的待确认点，可以继续生成最终版需求提炼表。")
         st.session_state["prd_pending_answers"] = "无待确认点。"
 
-        _enter3_c1, _enter3_c2, _enter3_c3 = st.columns([2, 1, 2])
-        with _enter3_c2:
-            if st.button(
-                "进入第 3 步：生成最终版",
-                type="primary",
-                use_container_width=True
-            ):
+        if st.button(
+            "进入第 3 步：生成最终版",
+            type="primary"
+        ):
                 go_to_step(STEP_FINAL)
 
     else:
@@ -751,10 +741,8 @@ elif st.session_state["current_step"] == STEP_FINAL:
     if not st.session_state.get("prd_current_analysis_result"):
         st.warning("请先完成第 1 步：输入材料并生成初版需求分析。")
 
-        _back1f_c1, _back1f_c2, _back1f_c3 = st.columns([2, 1, 2])
-        with _back1f_c2:
-            if st.button("返回第 1 步", use_container_width=True):
-                go_to_step(STEP_INPUT)
+        if st.button("返回第 1 步"):
+            go_to_step(STEP_INPUT)
 
         st.stop()
 
@@ -764,10 +752,8 @@ elif st.session_state["current_step"] == STEP_FINAL:
     if has_pending_points and not ignored_pending:
         st.warning("当前仍存在待确认点。请先在第 2 步补充说明，或者选择忽略剩余待确认点。")
 
-        _back2_c1, _back2_c2, _back2_c3 = st.columns([2, 1, 2])
-        with _back2_c2:
-            if st.button("返回第 2 步处理待确认点", use_container_width=True):
-                go_to_step(STEP_PENDING)
+        if st.button("返回第 2 步处理待确认点"):
+            go_to_step(STEP_PENDING)
 
         st.stop()
 
@@ -778,13 +764,10 @@ elif st.session_state["current_step"] == STEP_FINAL:
     else:
         st.success("当前无待确认点，可以生成最终版需求提炼表。")
 
-    _gen_final_c1, _gen_final_c2, _gen_final_c3 = st.columns([2, 1, 2])
-    with _gen_final_c2:
-        _gen_final_clicked = st.button(
-            "生成最终版需求提炼表",
-            type="primary",
-            use_container_width=True
-        )
+    _gen_final_clicked = st.button(
+        "生成最终版需求提炼表",
+        type="primary"
+    )
 
     if _gen_final_clicked:
         with st.spinner("正在生成最终版..."):
@@ -860,25 +843,19 @@ elif st.session_state["current_step"] == STEP_FINAL:
             expanded=True
         )
 
-        _dl_final_c1, _dl_final_c2, _dl_final_c3 = st.columns([2, 1, 2])
-        with _dl_final_c2:
-            st.download_button(
-                label="下载需求提炼表",
-                data=st.session_state["prd_final_analysis_result"],
-                file_name="prd_最终版需求提炼表.md",
-                mime="text/markdown",
-                use_container_width=True
-            )
+        st.download_button(
+            label="下载需求提炼表",
+            data=st.session_state["prd_final_analysis_result"],
+            file_name="prd_最终版需求提炼表.md",
+            mime="text/markdown"
+        )
 
         st.divider()
 
-        _enter4_c1, _enter4_c2, _enter4_c3 = st.columns([2, 1, 2])
-        with _enter4_c2:
-            if st.button(
-                "进入第 4 步：生成测试用例",
-                type="primary",
-                use_container_width=True
-            ):
+        if st.button(
+            "进入第 4 步：生成测试用例",
+            type="primary"
+        ):
                 go_to_step(STEP_TEST_CASE)
 
 
@@ -896,22 +873,17 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
     if not st.session_state.get("prd_final_analysis_result"):
         st.warning("请先完成第 3 步：生成最终版需求提炼表。")
 
-        _back3_c1, _back3_c2, _back3_c3 = st.columns([2, 1, 2])
-        with _back3_c2:
-            if st.button("返回第 3 步", use_container_width=True):
-                go_to_step(STEP_FINAL)
+        if st.button("返回第 3 步"):
+            go_to_step(STEP_FINAL)
 
         st.stop()
 
     materials = get_materials_from_state()
 
-    _gen_test_c1, _gen_test_c2, _gen_test_c3 = st.columns([2, 1, 2])
-    with _gen_test_c2:
-        _gen_test_clicked = st.button(
-            "生成测试用例和 SQL",
-            type="primary",
-            use_container_width=True
-        )
+    _gen_test_clicked = st.button(
+        "生成测试用例和 SQL",
+        type="primary"
+    )
 
     if _gen_test_clicked:
         with st.spinner("正在生成测试用例..."):

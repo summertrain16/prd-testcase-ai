@@ -803,31 +803,58 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
 
     # ===== ODPS 拉取模式 =====
     elif _mode == "odps":
-        # 添加表名输入
+        # 批量添加表名（多行文本框，每行一个表名）
         _c_add_input, _c_add_btn = st.columns([4, 1])
         with _c_add_input:
-            _add_tbl_name = st.text_input(
-                "输入表名（支持 项目名.表名），回车或点添加",
+            _add_tbl_text = st.text_area(
+                "输入表名，每行一个（支持 项目名.表名）",
                 key=f"{state_prefix}_add_input",
-                placeholder="例如：ods_project.ods_order_detail_di",
+                height=80,
+                placeholder="例如：\nods_project.ods_order_detail_di\ndwd_project.dwd_order_d\nads_project.ads_order_summary_df",
                 label_visibility="collapsed"
             )
         with _c_add_btn:
-            if st.button("添加表", key=f"{state_prefix}_add_btn", use_container_width=True):
-                if _add_tbl_name.strip():
-                    _new_id = f"odps_{_add_tbl_name.strip()}_{len(st.session_state[items_key])}"
-                    # 避免重复添加
+            if st.button("一键添加", key=f"{state_prefix}_add_btn", use_container_width=True):
+                if _add_tbl_text.strip():
                     _existing_names = {x["name"] for x in st.session_state[items_key]}
-                    if _add_tbl_name.strip() not in _existing_names:
-                        st.session_state[items_key].append({
-                            "id": _new_id,
-                            "name": _add_tbl_name.strip(),
-                            "source": "odps",
-                            "schema_text": "",
-                            "partition": "",
-                            "fetch_status": "pending",
-                            "fetch_error": ""
-                        })
+                    _added_count = 0
+                    for _line in _add_tbl_text.strip().splitlines():
+                        _tbl_name = _line.strip()
+                        if _tbl_name and _tbl_name not in _existing_names:
+                            _new_id = f"odps_{_tbl_name}_{len(st.session_state[items_key])}"
+                            st.session_state[items_key].append({
+                                "id": _new_id,
+                                "name": _tbl_name,
+                                "source": "odps",
+                                "schema_text": "",
+                                "partition": "",
+                                "fetch_status": "pending",
+                                "fetch_error": ""
+                            })
+                            _existing_names.add(_tbl_name)
+                            _added_count += 1
+                    if _added_count:
+                        st.success(f"已添加 {_added_count} 张表。")
+                        # 清空输入框
+                        st.session_state[f"{state_prefix}_add_input"] = ""
+                    st.rerun()
+
+        # 批量填写分区
+        if st.session_state[items_key]:
+            _c_pt_input, _c_pt_btn = st.columns([4, 1])
+            with _c_pt_input:
+                _batch_pt_val = st.text_input(
+                    "批量填写分区，应用到所有表",
+                    key=f"{state_prefix}_batch_pt_input",
+                    placeholder="例如：pt='20250101'  留空=无分区",
+                    label_visibility="collapsed"
+                )
+            with _c_pt_btn:
+                if st.button("一键填分区", key=f"{state_prefix}_batch_pt_btn", use_container_width=True):
+                    _pt_to_set = _batch_pt_val.strip()
+                    for _item in st.session_state[items_key]:
+                        _item["partition"] = _pt_to_set
+                    st.success(f"已将 {_pt_to_set if _pt_to_set else '无分区'} 应用到所有表。")
                     st.rerun()
 
         # 一键拉取按钮

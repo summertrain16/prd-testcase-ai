@@ -387,6 +387,18 @@ div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[data-t
     color: #FFFFFF !important;
 }
 
+/* ===== 独立按钮居中，宽度跟随文字自适应 ===== */
+div[data-testid="stButton"],
+div[data-testid="stDownloadButton"] {
+    display: flex !important;
+    justify-content: center !important;
+}
+/* columns 内的按钮保持原有对齐，不受居中影响 */
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"],
+div[data-testid="stHorizontalBlock"] div[data-testid="stDownloadButton"] {
+    justify-content: flex-start !important;
+}
+
 /* ===== 允许文字选中复制，禁止 Streamlit 默认右键菜单拦截 ===== */
 /* 恢复用户选中和右键能力 */
 [data-testid="stAppViewContainer"],

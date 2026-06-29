@@ -1001,3 +1001,8 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
 
 分区信息：{partition_text}
 
+表结构内容：
+{schema_content}
+"""
+        )
+    return "\n\n".join(final_parts)

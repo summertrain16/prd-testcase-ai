@@ -2261,6 +2261,9 @@ with st.sidebar:
         st.session_state["source_table_schema"] = ""
         st.session_state["dev_code"] = ""
         st.session_state["current_step"] = STEP_INPUT
+        # 清空 ODPS 表结构相关 state
+        st.session_state["source_schema_mode"] = ""
+        st.session_state["result_schema_mode"] = ""
         st.rerun()
 
 # =========================
@@ -2936,27 +2939,72 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
             if not _sql_blocks:
                 st.info("未提取到可执行的 SQL 代码块。")
             else:
-                st.caption(f"共提取到 {len(_sql_blocks)} 段 SQL，可逐段执行。点击『执行』按钮后，结果直接展示在下方。")
+                st.caption(f"共提取到 {len(_sql_blocks)} 段 SQL，可逐段或一键执行。")
 
+                # 初始化执行结果存储
+                if "sql_run_results" not in st.session_state:
+                    st.session_state["sql_run_results"] = {}
+
+                # 一键执行全部
+                _col_batch, _col_clear = st.columns([3, 1])
+                with _col_batch:
+                    if st.button("一键执行全部 SQL", type="primary", use_container_width=True, key="batch_run_sql"):
+                        _progress = st.progress(0.0)
+                        for _i, _sql_block in enumerate(_sql_blocks, 1):
+                            _progress.progress((_i - 1) / len(_sql_blocks))
+                            with st.spinner(f"执行 SQL-{_i:03d}（{_i}/{len(_sql_blocks)}）..."):
+                                _df_r, _err_r = run_single_sql(_odps_entry_run, _sql_block)
+                            st.session_state["sql_run_results"][_i] = {"df": _df_r, "err": _err_r}
+                        _progress.progress(1.0)
+                        _ok = sum(1 for v in st.session_state["sql_run_results"].values() if not v["err"])
+                        _fail = len(st.session_state["sql_run_results"]) - _ok
+                        if _fail == 0:
+                            st.success(f"全部执行完成（{_ok} 段）。")
+                        else:
+                            st.warning(f"执行完成：成功 {_ok} 段，失败 {_fail} 段。")
+                        st.rerun()
+                with _col_clear:
+                    if st.button("清空执行结果", use_container_width=True, key="clear_run_results"):
+                        st.session_state["sql_run_results"] = {}
+                        st.rerun()
+
+                # 逐段展示 + 执行
                 for _i, _sql_block in enumerate(_sql_blocks, 1):
-                    with st.expander(f"SQL-{_i:03d}"):
+                    with st.expander(f"SQL-{_i:03d}", expanded=False):
                         st.code(_sql_block, language="sql")
 
-                        if st.button("执行", key=f"run_sql_{_i}"):
-                            with st.spinner("执行中..."):
-                                _df_result, _err = run_single_sql(_odps_entry_run, _sql_block)
+                        _c_run, _c_export = st.columns([3, 2])
+                        with _c_run:
+                            if st.button("执行", key=f"run_sql_{_i}"):
+                                with st.spinner("执行中..."):
+                                    _df_result, _err = run_single_sql(_odps_entry_run, _sql_block)
+                                st.session_state["sql_run_results"][_i] = {"df": _df_result, "err": _err}
+                                st.rerun()
 
-                            if _err:
-                                st.error(f"执行失败：{_err}")
-                            elif _df_result.empty:
+                        # 展示已有结果
+                        _cached = st.session_state["sql_run_results"].get(_i)
+                        if _cached:
+                            if _cached["err"]:
+                                st.error(f"执行失败：{_cached['err']}")
+                            elif _cached["df"].empty:
                                 st.success("校验通过，无差异")
                             else:
-                                st.caption(f"返回 {len(_df_result)} 行")
+                                st.caption(f"返回 {len(_cached['df'])} 行")
                                 st.dataframe(
-                                    _df_result,
+                                    _cached["df"],
                                     use_container_width=True,
                                     height=300
                                 )
+                                with _c_export:
+                                    _csv_data = _cached["df"].to_csv(index=False).encode("utf-8-sig")
+                                    st.download_button(
+                                        label="导出 CSV",
+                                        data=_csv_data,
+                                        file_name=f"sql_{_i:03d}_result.csv",
+                                        mime="text/csv",
+                                        use_container_width=True,
+                                        key=f"download_csv_{_i}"
+                                    )
         else:
             st.info("未配置 ODPS 连接，仅支持下载 SQL 脚本手动执行。配置方法见侧边栏 ODPS 连接配置。")
 else:

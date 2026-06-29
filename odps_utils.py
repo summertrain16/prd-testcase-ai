@@ -102,15 +102,35 @@ def preview_table_data(odps_entry, table_name, partition="", limit=20):
         sql = f"SELECT * FROM {table_name} LIMIT {limit};"
     instance = odps_entry.execute_sql(sql)
     with instance.open_reader() as reader:
-        rows = [r.values for r in reader]
-        cols = [c.name for c in reader._schema.columns]
+        # 兼容不同 pyodps 版本：优先用 _schema，降级用 reader 的其他属性
+        if reader._schema is not None and reader._schema.columns:
+            cols = [c.name for c in reader._schema.columns]
+        else:
+            # 降级：从第一条记录的 values 长度推断列数
+            cols = None
+        rows = []
+        for r in reader:
+            row_values = r.values
+            # 逐个处理 None，避免底层 getitem 报错
+            safe_values = [v if v is not None else "" for v in row_values]
+            rows.append(safe_values)
+        if cols is None and rows:
+            cols = [f"col_{i}" for i in range(len(rows[0]))]
+        elif cols is None:
+            cols = []
     return pd.DataFrame(rows, columns=cols)
 
 
 def is_partitioned_table(odps_entry, table_name):
-    """判断表是否有分区字段，返回 bool。"""
-    t = odps_entry.get_table(table_name)
-    return bool(t.schema.partitions)
+    """判断表是否有分区字段，返回 bool。
+
+    需要 Describe 权限。如果权限不足或出错，返回 None 表示无法判断。
+    """
+    try:
+        t = odps_entry.get_table(table_name)
+        return bool(t.schema.partitions)
+    except Exception:
+        return None
 
 
 def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):

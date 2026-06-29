@@ -14,6 +14,9 @@ PRD 测试用例生成工具 — 主入口文件
 
 import os
 
+import io
+
+import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -29,7 +32,6 @@ from file_utils import read_uploaded_file
 from markdown_utils import (
     parse_pending_points_from_markdown,
     pending_points_to_llm_text,
-    pending_points_to_markdown,
     remove_pending_points_section,
     extract_sql_section_from_test_result,
     extract_sql_code_blocks,
@@ -320,9 +322,7 @@ if st.session_state["current_step"] == STEP_INPUT:
 
     st.header("一、输入 PRD")
 
-    with st.container(border=True):
-        st.markdown("**上传 PRD 文件**")
-
+    with st.expander("上传 PRD 文件", expanded=True):
         prd_file = st.file_uploader(
             "支持 txt、md、pdf、docx、xlsx、sql、csv、json、py",
             type=["txt", "md", "pdf", "docx", "xlsx", "sql", "csv", "json", "py"],
@@ -336,21 +336,14 @@ if st.session_state["current_step"] == STEP_INPUT:
         if st.session_state.get("uploaded_prd_text", ""):
             st.success("已读取上传的 PRD 文件。")
 
-            if st.button(
-                "清除已上传内容",
-                use_container_width=True
-            ):
+            if st.button("清除已上传内容"):
                 st.session_state["uploaded_prd_text"] = ""
                 st.session_state["prd_file_uploader_version"] += 1
                 st.rerun()
         else:
             st.info("未上传 PRD 文件，可在下方粘贴内容。")
 
-    st.write("")
-
-    with st.container(border=True):
-        st.markdown("**粘贴 PRD 内容**")
-
+    with st.expander("粘贴 PRD 内容", expanded=True):
         prd_manual_text = st.text_area(
             "粘贴 PRD 内容",
             key="prd_manual_text",
@@ -430,11 +423,15 @@ if st.session_state["current_step"] == STEP_INPUT:
         "第一步会根据 PRD、会议纪要、表结构、分区信息、开发代码进行初版分析；不确定的内容会放到待确认点中。"
     )
 
-    if st.button(
-        "🚀 生成初版需求提炼和待确认点",
-        type="primary",
-        use_container_width=True
-    ):
+    _btn_col1, _btn_col2, _btn_col3 = st.columns([2, 1, 2])
+    with _btn_col2:
+        _generate_draft_clicked = st.button(
+            "🚀 生成初版需求提炼和待确认点",
+            type="primary",
+            use_container_width=True
+        )
+
+    if _generate_draft_clicked:
         materials = get_materials_from_state()
 
         if not materials["prd_text"].strip():
@@ -523,14 +520,51 @@ elif st.session_state["current_step"] == STEP_PENDING:
     if not st.session_state.get("prd_current_analysis_result"):
         st.warning("请先完成第 1 步：输入材料并生成初版需求分析。")
 
-        if st.button("返回第 1 步", use_container_width=True):
-            go_to_step(STEP_INPUT)
+        _back1_c1, _back1_c2, _back1_c3 = st.columns([2, 1, 2])
+        with _back1_c2:
+            if st.button("返回第 1 步", use_container_width=True):
+                go_to_step(STEP_INPUT)
 
         st.stop()
 
     materials = get_materials_from_state()
 
     st.subheader("当前需求分析结果")
+
+    # ===== 下载 PRD 分析结果（Excel） =====
+    _download_excel_data = io.BytesIO()
+    with pd.ExcelWriter(_download_excel_data, engine="openpyxl") as _writer:
+        # Sheet1: 需求分析结果
+        _analysis_text = current_without_pending_points.strip() if current_without_pending_points.strip() else st.session_state["prd_current_analysis_result"]
+        _analysis_df = pd.DataFrame({"需求分析结果": _analysis_text.split("\n")})
+        _analysis_df.to_excel(_writer, sheet_name="需求分析结果", index=False)
+
+        # Sheet2: 待确认点清单
+        _pending_rows = st.session_state["pending_points_rows"]
+        if _pending_rows:
+            _pending_df = pd.DataFrame(_pending_rows)
+        else:
+            _pending_df = pd.DataFrame({"说明": ["无待确认点"]})
+        _pending_df.to_excel(_writer, sheet_name="待确认点清单", index=False)
+
+        # Sheet3: 历轮处理记录
+        _history_text = st.session_state.get("pending_confirm_history", "").strip()
+        if _history_text:
+            _history_df = pd.DataFrame({"历轮待确认点处理记录": _history_text.split("\n")})
+        else:
+            _history_df = pd.DataFrame({"说明": ["暂无历史记录"]})
+        _history_df.to_excel(_writer, sheet_name="历轮处理记录", index=False)
+
+    _download_excel_data.seek(0)
+
+    _dl_col1, _dl_col2, _dl_col3 = st.columns([2, 1, 2])
+    with _dl_col2:
+        st.download_button(
+            label="📥 下载 PRD 分析结果（Excel）",
+            data=_download_excel_data,
+            file_name="prd_当前需求分析和待确认点.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
     st.caption(
         f"当前待确认点解析轮次：第 {st.session_state.get('pending_analysis_round', 1)} 轮"
@@ -566,12 +600,14 @@ elif st.session_state["current_step"] == STEP_PENDING:
         st.success("当前没有阻塞测试设计或 SQL 校验的待确认点，可以继续生成最终版需求提炼表。")
         st.session_state["prd_pending_answers"] = "无待确认点。"
 
-        if st.button(
-            "进入第 3 步：生成最终版",
-            type="primary",
-            use_container_width=True
-        ):
-            go_to_step(STEP_FINAL)
+        _enter3_c1, _enter3_c2, _enter3_c3 = st.columns([2, 1, 2])
+        with _enter3_c2:
+            if st.button(
+                "进入第 3 步：生成最终版",
+                type="primary",
+                use_container_width=True
+            ):
+                go_to_step(STEP_FINAL)
 
     else:
         render_pending_points_data_editor()
@@ -700,29 +736,6 @@ elif st.session_state["current_step"] == STEP_PENDING:
             "你已选择忽略剩余待确认点。后续生成最终版和测试用例时，AI 会基于当前信息继续处理；被忽略的问题可能在最终版备注或 SQL TODO 中体现。"
         )
 
-    download_content = ""
-
-    if current_without_pending_points.strip():
-        download_content += current_without_pending_points.strip()
-    else:
-        download_content += st.session_state["prd_current_analysis_result"]
-
-    download_content += "\n\n" + pending_points_to_markdown(
-        st.session_state["pending_points_rows"]
-    )
-
-    if st.session_state.get("pending_confirm_history", "").strip():
-        download_content += "\n\n## 历轮待确认点处理记录\n\n"
-        download_content += st.session_state["pending_confirm_history"]
-
-    st.download_button(
-        label="下载 PRD 分析结果",
-        data=download_content,
-        file_name="prd_当前需求分析和待确认点.md",
-        mime="text/markdown",
-        use_container_width=True
-    )
-
 
 # =========================
 # 7. 第 3 步：生成并展示最终版需求提炼表
@@ -738,8 +751,10 @@ elif st.session_state["current_step"] == STEP_FINAL:
     if not st.session_state.get("prd_current_analysis_result"):
         st.warning("请先完成第 1 步：输入材料并生成初版需求分析。")
 
-        if st.button("返回第 1 步", use_container_width=True):
-            go_to_step(STEP_INPUT)
+        _back1f_c1, _back1f_c2, _back1f_c3 = st.columns([2, 1, 2])
+        with _back1f_c2:
+            if st.button("返回第 1 步", use_container_width=True):
+                go_to_step(STEP_INPUT)
 
         st.stop()
 
@@ -749,8 +764,10 @@ elif st.session_state["current_step"] == STEP_FINAL:
     if has_pending_points and not ignored_pending:
         st.warning("当前仍存在待确认点。请先在第 2 步补充说明，或者选择忽略剩余待确认点。")
 
-        if st.button("返回第 2 步处理待确认点", use_container_width=True):
-            go_to_step(STEP_PENDING)
+        _back2_c1, _back2_c2, _back2_c3 = st.columns([2, 1, 2])
+        with _back2_c2:
+            if st.button("返回第 2 步处理待确认点", use_container_width=True):
+                go_to_step(STEP_PENDING)
 
         st.stop()
 
@@ -761,11 +778,15 @@ elif st.session_state["current_step"] == STEP_FINAL:
     else:
         st.success("当前无待确认点，可以生成最终版需求提炼表。")
 
-    if st.button(
-        "生成最终版需求提炼表",
-        type="primary",
-        use_container_width=True
-    ):
+    _gen_final_c1, _gen_final_c2, _gen_final_c3 = st.columns([2, 1, 2])
+    with _gen_final_c2:
+        _gen_final_clicked = st.button(
+            "生成最终版需求提炼表",
+            type="primary",
+            use_container_width=True
+        )
+
+    if _gen_final_clicked:
         with st.spinner("正在生成最终版..."):
             sync_pending_points_from_widgets()
 
@@ -839,22 +860,26 @@ elif st.session_state["current_step"] == STEP_FINAL:
             expanded=True
         )
 
-        st.download_button(
-            label="下载需求提炼表",
-            data=st.session_state["prd_final_analysis_result"],
-            file_name="prd_最终版需求提炼表.md",
-            mime="text/markdown",
-            use_container_width=True
-        )
+        _dl_final_c1, _dl_final_c2, _dl_final_c3 = st.columns([2, 1, 2])
+        with _dl_final_c2:
+            st.download_button(
+                label="下载需求提炼表",
+                data=st.session_state["prd_final_analysis_result"],
+                file_name="prd_最终版需求提炼表.md",
+                mime="text/markdown",
+                use_container_width=True
+            )
 
         st.divider()
 
-        if st.button(
-            "进入第 4 步：生成测试用例",
-            type="primary",
-            use_container_width=True
-        ):
-            go_to_step(STEP_TEST_CASE)
+        _enter4_c1, _enter4_c2, _enter4_c3 = st.columns([2, 1, 2])
+        with _enter4_c2:
+            if st.button(
+                "进入第 4 步：生成测试用例",
+                type="primary",
+                use_container_width=True
+            ):
+                go_to_step(STEP_TEST_CASE)
 
 
 # =========================
@@ -871,18 +896,24 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
     if not st.session_state.get("prd_final_analysis_result"):
         st.warning("请先完成第 3 步：生成最终版需求提炼表。")
 
-        if st.button("返回第 3 步", use_container_width=True):
-            go_to_step(STEP_FINAL)
+        _back3_c1, _back3_c2, _back3_c3 = st.columns([2, 1, 2])
+        with _back3_c2:
+            if st.button("返回第 3 步", use_container_width=True):
+                go_to_step(STEP_FINAL)
 
         st.stop()
 
     materials = get_materials_from_state()
 
-    if st.button(
-        "生成测试用例和 SQL",
-        type="primary",
-        use_container_width=True
-    ):
+    _gen_test_c1, _gen_test_c2, _gen_test_c3 = st.columns([2, 1, 2])
+    with _gen_test_c2:
+        _gen_test_clicked = st.button(
+            "生成测试用例和 SQL",
+            type="primary",
+            use_container_width=True
+        )
+
+    if _gen_test_clicked:
         with st.spinner("正在生成测试用例..."):
             sync_pending_points_from_widgets()
 

@@ -378,6 +378,19 @@ div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[data-t
     color: #FFFFFF !important;
 }
 
+/* ===== 允许文字选中复制，禁止 Streamlit 默认右键菜单拦截 ===== */
+/* 恢复用户选中和右键能力 */
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] * {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
+
+/* 禁止 Streamlit 拦截 contextmenu 事件 */
+div[data-testid="stAppViewBlockContainer"] {
+    pointer-events: auto !important;
+}
+
 </style>
         """,
         unsafe_allow_html=True
@@ -878,60 +891,52 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
     st.write(f"共 {len(st.session_state[items_key])} 张表：")
 
     for index, item in enumerate(list(st.session_state[items_key]), start=1):
-        # 标题行：表名+状态摘要
-        _status_tag = ""
-        if item.get("source") == "odps":
-            _status = item.get("fetch_status", "pending")
-            if _status == "ok":
-                _status_tag = "✅ 已拉取"
-            elif _status == "error":
-                _status_tag = "❌ 拉取失败"
-            elif _status == "pending":
-                _status_tag = "⏳ 待拉取"
-        else:
-            _status_tag = "📄 xlsx 上传"
+        # 始终可见的一行：表名+状态 | 分区输入 | 删除
+        _c_name, _c_pt, _c_del = st.columns([5, 3, 1])
 
-        _pt_short = item.get("partition", "").strip()
-        _pt_tag = f"｜分区：{_pt_short}" if _pt_short else "｜无分区"
+        with _c_name:
+            _status_tag = ""
+            if item.get("source") == "odps":
+                _status = item.get("fetch_status", "pending")
+                if _status == "ok":
+                    _status_tag = " ✅ 已拉取"
+                elif _status == "error":
+                    _status_tag = " ❌ 拉取失败"
+                elif _status == "pending":
+                    _status_tag = " ⏳ 待拉取"
+            else:
+                _status_tag = " 📄 xlsx"
 
-        with st.expander(f"{index}. {item['name']}  {_status_tag}{_pt_tag}", expanded=False):
-            # 表名+状态 | 分区 | 删除
-            _c_name, _c_pt, _c_del = st.columns([5, 3, 1])
+            st.markdown(f"**{index}. {item['name']}**{_status_tag}")
 
-            with _c_name:
-                st.markdown(f"**{item['name']}**")
-                if item.get("source") == "odps":
-                    _status = item.get("fetch_status", "pending")
-                    if _status == "ok":
-                        st.caption("已拉取")
-                    elif _status == "error":
-                        st.error(f"拉取失败：{item.get('fetch_error', '未知错误')}")
-                    elif _status == "pending":
-                        st.caption("待拉取")
-                else:
-                    st.caption("来自 xlsx 上传")
+            if item.get("source") == "odps" and item.get("fetch_status") == "error":
+                st.error(f"拉取失败：{item.get('fetch_error', '未知错误')}")
 
-            with _c_pt:
-                _pt_val = st.text_input(
-                    "分区",
-                    value=item.get("partition", ""),
-                    key=f"{state_prefix}_pt_{item['id']}",
-                    placeholder="pt='20250101' 或留空=无分区",
-                    label_visibility="collapsed"
-                )
-                for saved_item in st.session_state[items_key]:
-                    if saved_item["id"] == item["id"]:
-                        saved_item["partition"] = _pt_val.strip()
-                        break
+        with _c_pt:
+            _pt_val = st.text_input(
+                "分区",
+                value=item.get("partition", ""),
+                key=f"{state_prefix}_pt_{item['id']}",
+                placeholder="pt='20250101' 或留空=无分区",
+                label_visibility="collapsed"
+            )
+            for saved_item in st.session_state[items_key]:
+                if saved_item["id"] == item["id"]:
+                    saved_item["partition"] = _pt_val.strip()
+                    break
 
-            with _c_del:
-                if st.button("删除", key=f"{state_prefix}_del_{item['id']}"):
-                    st.session_state[items_key] = [
-                        x for x in st.session_state[items_key]
-                        if x["id"] != item["id"]
-                    ]
-                    st.session_state[uploader_version_key] += 1
-                    st.rerun()
+        with _c_del:
+            if st.button("删除", key=f"{state_prefix}_del_{item['id']}"):
+                st.session_state[items_key] = [
+                    x for x in st.session_state[items_key]
+                    if x["id"] != item["id"]
+                ]
+                st.session_state[uploader_version_key] += 1
+                st.rerun()
+
+        # 展开区：预览数据 + 表结构内容（默认收缩，不挡分区填写）
+        _detail_label = f"展开详情：预览数据 / 表结构内容"
+        with st.expander(_detail_label, expanded=False):
 
             # ODPS 模式：单行预览数据按钮
             if item.get("source") == "odps" and item.get("fetch_status") == "ok":
@@ -996,8 +1001,3 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
 
 分区信息：{partition_text}
 
-表结构内容：
-{schema_content}
-"""
-        )
-    return "\n\n".join(final_parts)

@@ -12,6 +12,8 @@ from pypdf import PdfReader
 from docx import Document
 from openpyxl import load_workbook
 
+from odps_utils import get_odps_entry, get_table_schema_text, preview_table_data, run_single_sql
+
 STEP_INPUT = "1. 输入材料"
 STEP_PENDING = "2. 待确认点收敛"
 STEP_FINAL = "3. 最终版需求提炼"
@@ -2072,6 +2074,34 @@ with st.sidebar:
         else:
             st.warning("请填写 API Key")
 
+    # ===== 新增：ODPS 连接配置 =====
+    with st.expander("ODPS 连接配置", expanded=False):
+        st.caption("连接 MaxCompute/DataWorks，用于在线拉表结构和执行 SQL。不配置仍可用 xlsx 上传。")
+
+        if "odps_endpoint" not in st.session_state:
+            st.session_state["odps_endpoint"] = ""
+        if "odps_project" not in st.session_state:
+            st.session_state["odps_project"] = ""
+        if "odps_ak" not in st.session_state:
+            st.session_state["odps_ak"] = ""
+        if "odps_sk" not in st.session_state:
+            st.session_state["odps_sk"] = ""
+
+        st.text_input("Endpoint", key="odps_endpoint",
+            placeholder="http://service.odps.aliyun.com/api",
+            help="MaxCompute 访问地址。公网一般填 http://service.odps.aliyun.com/api")
+        st.text_input("Project", key="odps_project",
+            placeholder="MaxCompute 项目名",
+            help="你在 DataWorks/MaxCompute 里的项目名")
+        st.text_input("AccessKey ID", key="odps_ak", type="password")
+        st.text_input("AccessKey Secret", key="odps_sk", type="password")
+
+        odps_connected = bool(st.session_state.get("odps_ak", "").strip())
+        if odps_connected:
+            st.success("已填写 ODPS 配置")
+        else:
+            st.info("未配置 ODPS，仍可用 xlsx 上传表结构")
+
     st.divider()
     if st.button("清空全部结果", use_container_width=True):
         st.session_state["prd_draft_analysis_result"] = ""
@@ -2194,6 +2224,61 @@ if st.session_state["current_step"] == STEP_INPUT:
 
         st.divider()
 
+        # ===== 新增：ODPS 在线拉取表结构 =====
+        _odps_entry = get_odps_entry(
+            st.session_state.get("odps_ak", "").strip(),
+            st.session_state.get("odps_sk", "").strip(),
+            st.session_state.get("odps_project", "").strip(),
+            st.session_state.get("odps_endpoint", "").strip(),
+        )
+
+        if _odps_entry:
+            with st.expander("从 MaxCompute 在线拉取表结构（可选）", expanded=False):
+                st.caption("输入表名，直接从 ODPS 拉取表结构和数据预览，替代手动上传 xlsx。拉取到的表结构会自动填入下方『源表表结构』。")
+
+                _odps_table_input = st.text_input(
+                    "表名",
+                    key="odps_table_input",
+                    placeholder="例如：ods_order_detail_di"
+                )
+
+                _col_fetch, _col_preview = st.columns(2)
+
+                with _col_fetch:
+                    _fetch_schema_clicked = st.button("拉取表结构", use_container_width=True)
+
+                with _col_preview:
+                    _fetch_data_clicked = st.button("预览数据(20行)", use_container_width=True)
+
+                if _fetch_schema_clicked and _odps_table_input.strip():
+                    with st.spinner("正在拉取表结构..."):
+                        try:
+                            _schema_text = get_table_schema_text(_odps_entry, _odps_table_input.strip())
+                            st.session_state["odps_schema_text"] = _schema_text
+                            st.session_state["source_table_schema"] = _schema_text
+                            st.success(f"已拉取 {_odps_table_input.strip()} 的表结构，已填入源表表结构。")
+                        except Exception as e:
+                            st.error(f"拉取失败：{e}")
+
+                if _fetch_data_clicked and _odps_table_input.strip():
+                    with st.spinner("正在预览数据..."):
+                        try:
+                            _df_preview = preview_table_data(_odps_entry, _odps_table_input.strip())
+                            st.dataframe(_df_preview, use_container_width=True, height=250)
+                        except Exception as e:
+                            st.error(f"预览失败：{e}")
+
+                if st.session_state.get("odps_schema_text"):
+                    st.text_area(
+                        "拉取到的表结构",
+                        value=st.session_state["odps_schema_text"],
+                        height=200,
+                        disabled=True,
+                        key="odps_schema_text_preview"
+                    )
+
+            st.divider()
+
         result_table_schema = render_table_schema_uploader(
             title="结果表表结构",
             state_prefix="result_schema"
@@ -2207,6 +2292,10 @@ if st.session_state["current_step"] == STEP_INPUT:
             title="源表表结构",
             state_prefix="source_schema"
         )
+
+        # 如果已经从 ODPS 拉取过表结构，保留它不被 xlsx 上传覆盖
+        if st.session_state.get("odps_schema_text") and not source_table_schema:
+            source_table_schema = st.session_state["odps_schema_text"]
 
         st.session_state["source_table_schema"] = source_table_schema
 
@@ -2752,6 +2841,50 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
         render_test_case_result_with_download(
             st.session_state["test_case_result"]
         )
+
+        # ===== 新增：在线执行校验 SQL =====
+        _odps_entry_run = get_odps_entry(
+            st.session_state.get("odps_ak", "").strip(),
+            st.session_state.get("odps_sk", "").strip(),
+            st.session_state.get("odps_project", "").strip(),
+            st.session_state.get("odps_endpoint", "").strip(),
+        )
+
+        if _odps_entry_run:
+            st.divider()
+            st.subheader("在线执行校验 SQL")
+
+            _sql_section = extract_sql_section_from_test_result(
+                st.session_state["test_case_result"]
+            )
+            _sql_blocks = extract_sql_code_blocks(_sql_section)
+
+            if not _sql_blocks:
+                st.info("未提取到可执行的 SQL 代码块。")
+            else:
+                st.caption(f"共提取到 {len(_sql_blocks)} 段 SQL，可逐段执行。点击『执行』按钮后，结果直接展示在下方。")
+
+                for _i, _sql_block in enumerate(_sql_blocks, 1):
+                    with st.expander(f"SQL-{_i:03d}"):
+                        st.code(_sql_block, language="sql")
+
+                        if st.button("执行", key=f"run_sql_{_i}"):
+                            with st.spinner("执行中..."):
+                                _df_result, _err = run_single_sql(_odps_entry_run, _sql_block)
+
+                            if _err:
+                                st.error(f"执行失败：{_err}")
+                            elif _df_result.empty:
+                                st.success("校验通过，无差异")
+                            else:
+                                st.caption(f"返回 {len(_df_result)} 行")
+                                st.dataframe(
+                                    _df_result,
+                                    use_container_width=True,
+                                    height=300
+                                )
+        else:
+            st.info("未配置 ODPS 连接，仅支持下载 SQL 脚本手动执行。配置方法见侧边栏 ODPS 连接配置。")
 else:
     st.warning("当前步骤状态异常，已返回第 1 步。")
     st.session_state["current_step"] = STEP_INPUT

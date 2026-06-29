@@ -855,6 +855,9 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
                     _pt_to_set = _batch_pt_val.strip()
                     for _item in st.session_state[items_key]:
                         _item["partition"] = _pt_to_set
+                        # 同步更新每行 text_input 的 session_state key，让 rerun 后显示新值
+                        _pt_widget_key = f"{state_prefix}_pt_{_item['id']}"
+                        st.session_state[_pt_widget_key] = _pt_to_set
                     st.success(f"已将 {_pt_to_set if _pt_to_set else '无分区'} 应用到所有表。")
                     st.rerun()
 
@@ -941,13 +944,17 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
                 st.error(f"拉取失败：{item.get('fetch_error', '未知错误')}")
 
         with _c_pt:
+            _pt_widget_key = f"{state_prefix}_pt_{item['id']}"
+            # 如果 session_state 里有值就用它，否则用 item 里的值
+            if _pt_widget_key not in st.session_state:
+                st.session_state[_pt_widget_key] = item.get("partition", "")
             _pt_val = st.text_input(
                 "分区",
-                value=item.get("partition", ""),
-                key=f"{state_prefix}_pt_{item['id']}",
+                key=_pt_widget_key,
                 placeholder="pt='20250101' 或留空=无分区",
                 label_visibility="collapsed"
             )
+            # 每次渲染都把 widget 值同步回 item，确保最终以每行输入框为准
             for saved_item in st.session_state[items_key]:
                 if saved_item["id"] == item["id"]:
                     saved_item["partition"] = _pt_val.strip()

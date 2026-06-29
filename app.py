@@ -318,48 +318,46 @@ if st.session_state["current_step"] == STEP_INPUT:
     # PRD 输入区
     # =========================
 
-    st.subheader("一、输入 PRD")
+    st.header("一、输入 PRD")
 
-    col_upload, col_manual = st.columns([1, 2])
+    with st.container(border=True):
+        st.markdown("**上传 PRD 文件**")
 
-    with col_upload:
-        with st.container(border=True):
-            st.markdown("#### 上传 PRD 文件")
+        prd_file = st.file_uploader(
+            "支持 txt、md、pdf、docx、xlsx、sql、csv、json、py",
+            type=["txt", "md", "pdf", "docx", "xlsx", "sql", "csv", "json", "py"],
+            key=f"prd_file_{st.session_state['prd_file_uploader_version']}"
+        )
 
-            prd_file = st.file_uploader(
-                "支持 txt、md、pdf、docx、xlsx、sql、csv、json、py",
-                type=["txt", "md", "pdf", "docx", "xlsx", "sql", "csv", "json", "py"],
-                key=f"prd_file_{st.session_state['prd_file_uploader_version']}"
-            )
+        if prd_file is not None:
+            uploaded_text = read_uploaded_file(prd_file)
+            st.session_state["uploaded_prd_text"] = uploaded_text
 
-            if prd_file is not None:
-                uploaded_text = read_uploaded_file(prd_file)
-                st.session_state["uploaded_prd_text"] = uploaded_text
+        if st.session_state.get("uploaded_prd_text", ""):
+            st.success("已读取上传的 PRD 文件。")
 
-            if st.session_state.get("uploaded_prd_text", ""):
-                st.success("已读取上传的 PRD 文件。")
+            if st.button(
+                "清除已上传内容",
+                use_container_width=True
+            ):
+                st.session_state["uploaded_prd_text"] = ""
+                st.session_state["prd_file_uploader_version"] += 1
+                st.rerun()
+        else:
+            st.info("未上传 PRD 文件，可在下方粘贴内容。")
 
-                if st.button(
-                    "清除已上传内容",
-                    use_container_width=True
-                ):
-                    st.session_state["uploaded_prd_text"] = ""
-                    st.session_state["prd_file_uploader_version"] += 1
-                    st.rerun()
-            else:
-                st.info("未上传 PRD 文件，可直接在右侧粘贴内容。")
+    st.write("")
 
-    with col_manual:
-        with st.container(border=True):
-            st.markdown("#### 粘贴 PRD 内容")
+    with st.container(border=True):
+        st.markdown("**粘贴 PRD 内容**")
 
-            prd_manual_text = st.text_area(
-                "粘贴 PRD 内容",
-                key="prd_manual_text",
-                height=260,
-                placeholder="请在这里粘贴 PRD 文本。如果已经上传文件，也可以在这里补充说明。",
-                label_visibility="collapsed"
-            )
+        prd_manual_text = st.text_area(
+            "粘贴 PRD 内容",
+            key="prd_manual_text",
+            height=260,
+            placeholder="请在这里粘贴 PRD 文本。如果已经上传文件，也可以在这里补充说明。",
+            label_visibility="collapsed"
+        )
 
     prd_text = ""
 

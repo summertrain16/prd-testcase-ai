@@ -878,12 +878,28 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
     st.write(f"共 {len(st.session_state[items_key])} 张表：")
 
     for index, item in enumerate(list(st.session_state[items_key]), start=1):
-        with st.container(border=True):
-            # 行：表名+状态 | 分区 | 删除
+        # 标题行：表名+状态摘要
+        _status_tag = ""
+        if item.get("source") == "odps":
+            _status = item.get("fetch_status", "pending")
+            if _status == "ok":
+                _status_tag = "✅ 已拉取"
+            elif _status == "error":
+                _status_tag = "❌ 拉取失败"
+            elif _status == "pending":
+                _status_tag = "⏳ 待拉取"
+        else:
+            _status_tag = "📄 xlsx 上传"
+
+        _pt_short = item.get("partition", "").strip()
+        _pt_tag = f"｜分区：{_pt_short}" if _pt_short else "｜无分区"
+
+        with st.expander(f"{index}. {item['name']}  {_status_tag}{_pt_tag}", expanded=False):
+            # 表名+状态 | 分区 | 删除
             _c_name, _c_pt, _c_del = st.columns([5, 3, 1])
 
             with _c_name:
-                st.markdown(f"**{index}. {item['name']}**")
+                st.markdown(f"**{item['name']}**")
                 if item.get("source") == "odps":
                     _status = item.get("fetch_status", "pending")
                     if _status == "ok":

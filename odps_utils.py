@@ -81,23 +81,36 @@ def get_table_schema_text(odps_entry, table_name):
     return "\n".join(parts)
 
 
-def preview_table_data(odps_entry, table_name, limit=20):
+def preview_table_data(odps_entry, table_name, partition="", limit=20):
     """预览表数据，返回 DataFrame。
+
+    对于分区表，必须传 partition 参数（例如 pt='20250101'），
+    否则全表扫描会触发底层 "Unsupported getitem value: None" 错误。
 
     参数：
         odps_entry: ODPS 连接对象
         table_name: 表名
+        partition: 分区条件，例如 "pt='20250101'"。留空则不加 WHERE。
         limit: 返回行数，默认 20
 
     返回：
         pandas DataFrame。
     """
-    sql = f"SELECT * FROM {table_name} LIMIT {limit};"
+    if partition.strip():
+        sql = f"SELECT * FROM {table_name} WHERE {partition.strip()} LIMIT {limit};"
+    else:
+        sql = f"SELECT * FROM {table_name} LIMIT {limit};"
     instance = odps_entry.execute_sql(sql)
     with instance.open_reader() as reader:
         rows = [r.values for r in reader]
         cols = [c.name for c in reader._schema.columns]
     return pd.DataFrame(rows, columns=cols)
+
+
+def is_partitioned_table(odps_entry, table_name):
+    """判断表是否有分区字段，返回 bool。"""
+    t = odps_entry.get_table(table_name)
+    return bool(t.schema.partitions)
 
 
 def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):

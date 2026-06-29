@@ -547,14 +547,14 @@ elif st.session_state["current_step"] == STEP_PENDING:
             render_markdown_in_scroll_box(
                 title="查看当前需求分析结果",
                 markdown_text=current_without_pending_points,
-                height=520,
+                height=600,
                 expanded=True
             )
     else:
         render_markdown_in_scroll_box(
             title="查看当前完整需求分析结果",
             markdown_text=st.session_state["prd_current_analysis_result"],
-            height=520,
+            height=600,
             expanded=True
         )
 
@@ -837,7 +837,7 @@ elif st.session_state["current_step"] == STEP_FINAL:
         render_markdown_in_scroll_box(
             title="查看最终版需求提炼表",
             markdown_text=st.session_state["prd_final_analysis_result"],
-            height=560,
+            height=700,
             expanded=True
         )
 

@@ -100,7 +100,7 @@ def preview_table_data(odps_entry, table_name, partition="", limit=20):
     # 构造分区过滤条件
     partition_spec = partition.strip() if partition.strip() else None
 
-    with t.open_reader(partition=partition_spec, limit=limit) as reader:
+    with t.open_reader(partition=partition_spec) as reader:
         # 从表 schema 取列名（包含普通列，不含分区列）
         col_names = [col.name for col in t.schema.columns]
 
@@ -111,7 +111,9 @@ def preview_table_data(odps_entry, table_name, partition="", limit=20):
                     col_names.append(pcol.name)
 
         rows = []
-        for record in reader:
+        for i, record in enumerate(reader):
+            if i >= limit:
+                break
             row = []
             for col_name in col_names:
                 try:

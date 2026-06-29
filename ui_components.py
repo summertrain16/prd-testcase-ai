@@ -808,7 +808,7 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
         with _c_add_input:
             _add_tbl_text = st.text_area(
                 "输入表名，每行一个（支持 项目名.表名）",
-                key=f"{state_prefix}_add_input",
+                key=f"{state_prefix}_add_input_{st.session_state[uploader_version_key]}",
                 height=80,
                 placeholder="例如：\nods_project.ods_order_detail_di\ndwd_project.dwd_order_d\nads_project.ads_order_summary_df",
                 label_visibility="collapsed"
@@ -835,8 +835,9 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
                             _added_count += 1
                     if _added_count:
                         st.success(f"已添加 {_added_count} 张表。")
-                        # 清空输入框
-                        st.session_state[f"{state_prefix}_add_input"] = ""
+                        # 清空输入框：用回调方式，在 widget 创建前设
+                        # 不能在 widget 创建后改 session_state，改用 version 换 key
+                        st.session_state[uploader_version_key] += 1
                     st.rerun()
 
         # 批量填写分区

@@ -4,12 +4,16 @@
 被 app.py 调用，用于替代手动上传 xlsx 表结构，并支持在线执行生成的校验 SQL。
 """
 
+import streamlit as st
 import pandas as pd
 from odps import ODPS
 
+MAX_RESULT_ROWS = 1000
 
+
+@st.cache_resource
 def get_odps_entry(ak, sk, project, endpoint):
-    """创建 ODPS 连接对象。
+    """创建 ODPS 连接对象（带缓存，同参数只建一次）。
 
     参数：
         ak: AccessKey ID
@@ -24,6 +28,17 @@ def get_odps_entry(ak, sk, project, endpoint):
         return None
     project = project.strip() if project else None
     return ODPS(ak, sk, project=project, endpoint=endpoint)
+
+
+def test_odps_connection(odps_entry):
+    """测试 ODPS 连接是否可用，返回 (是否成功, 错误信息)。"""
+    if odps_entry is None:
+        return False, "连接对象为空，请检查配置"
+    try:
+        odps_entry.projects
+        return True, "连接成功"
+    except Exception as e:
+        return False, str(e)
 
 
 def get_table_schema_text(odps_entry, table_name):
@@ -85,26 +100,41 @@ def preview_table_data(odps_entry, table_name, limit=20):
     return pd.DataFrame(rows, columns=cols)
 
 
-def run_single_sql(odps_entry, sql_text):
+def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
     """执行单段 SQL，返回 (DataFrame, 错误信息)。
+
+    结果超过 max_rows 行会自动截断，避免撑爆内存。
 
     参数：
         odps_entry: ODPS 连接对象
         sql_text: 单段 SQL 文本
+        max_rows: 最大返回行数，默认 1000
 
     返回：
         (result_df, error_msg)
         - 成功且无数据：返回 (空 DataFrame, None)
-        - 成功且有数据：返回 (DataFrame, None)
+        - 成功且有数据：返回 (DataFrame, None)，超过 max_rows 会截断
         - 失败：返回 (空 DataFrame, 错误字符串)
     """
     try:
         instance = odps_entry.execute_sql(sql_text)
         with instance.open_reader() as reader:
-            if reader.count == 0:
+            total = reader.count
+            if total == 0:
                 return pd.DataFrame(), None
-            rows = [r.values for r in reader]
+
             cols = [c.name for c in reader._schema.columns]
-            return pd.DataFrame(rows, columns=cols), None
+            truncated = total > max_rows
+
+            rows = []
+            for i, record in enumerate(reader):
+                if i >= max_rows:
+                    break
+                rows.append(record.values)
+
+            df = pd.DataFrame(rows, columns=cols)
+            if truncated:
+                st.warning(f"结果共 {total} 行，已截断为前 {max_rows} 行。如需完整结果请导出 CSV 或优化 SQL。")
+            return df, None
     except Exception as e:
         return pd.DataFrame(), str(e)

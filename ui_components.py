@@ -930,11 +930,16 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
                     with st.spinner(f"正在预览 {item['name']}..."):
                         try:
                             # 分区表没填分区条件时提前拦截，避免底层报错
-                            if not _pt_val and is_partitioned_table(_oe, item["name"]):
+                            # is_partitioned_table 返回 None 表示无法判断（权限不足等），不拦截
+                            _is_pt = is_partitioned_table(_oe, item["name"])
+                            if not _pt_val and _is_pt is True:
                                 st.warning("这张是分区表，请在分区框里填入分区条件（例如 pt='20250101'）后再预览。")
                             else:
                                 _df = preview_table_data(_oe, item["name"], _pt_val)
-                                st.dataframe(_df, use_container_width=True, height=250)
+                                if _df.empty:
+                                    st.info("该分区下没有数据。")
+                                else:
+                                    st.dataframe(_df, use_container_width=True, height=250)
                         except Exception as e:
                             st.error(f"预览失败：{e}")
 

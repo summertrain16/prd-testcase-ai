@@ -1804,6 +1804,7 @@ def sync_pending_points_from_widgets() -> None:
 def render_table_schema_uploader(title: str, state_prefix: str) -> str:
     """
     渲染表结构组件：支持下拉选择"ODPS 拉取"或"xlsx 上传"。
+    ODPS 模式：逐行添加表名，一键批量拉取，失败跳过可重试。
     每行一张表，行尾跟分区填写框。
 
     参数：
@@ -1874,29 +1875,93 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
                         "name": uploaded_file.name,
                         "source": "xlsx",
                         "schema_text": schema_text,
-                        "partition": ""
+                        "partition": "",
+                        "fetch_status": "ok",
+                        "fetch_error": ""
                     })
                     existing_ids.add(file_id)
 
     # ===== ODPS 拉取模式 =====
     elif _mode == "odps":
-        _add_tbl_name = st.text_input(
-            f"输入表名添加一行（支持 项目名.表名）",
-            key=f"{state_prefix}_add_input",
-            placeholder="例如：ods_project.ods_order_detail_di",
-            label_visibility="collapsed"
-        )
-        if st.button(f"添加表", key=f"{state_prefix}_add_btn", use_container_width=False):
-            if _add_tbl_name.strip():
-                _new_id = f"odps_{_add_tbl_name.strip()}_{len(st.session_state[items_key])}"
-                st.session_state[items_key].append({
-                    "id": _new_id,
-                    "name": _add_tbl_name.strip(),
-                    "source": "odps",
-                    "schema_text": "",
-                    "partition": ""
-                })
+        # 添加表名输入
+        _c_add_input, _c_add_btn = st.columns([4, 1])
+        with _c_add_input:
+            _add_tbl_name = st.text_input(
+                "输入表名（支持 项目名.表名），回车或点添加",
+                key=f"{state_prefix}_add_input",
+                placeholder="例如：ods_project.ods_order_detail_di",
+                label_visibility="collapsed"
+            )
+        with _c_add_btn:
+            if st.button("添加表", key=f"{state_prefix}_add_btn", use_container_width=True):
+                if _add_tbl_name.strip():
+                    _new_id = f"odps_{_add_tbl_name.strip()}_{len(st.session_state[items_key])}"
+                    # 避免重复添加
+                    _existing_names = {x["name"] for x in st.session_state[items_key]}
+                    if _add_tbl_name.strip() not in _existing_names:
+                        st.session_state[items_key].append({
+                            "id": _new_id,
+                            "name": _add_tbl_name.strip(),
+                            "source": "odps",
+                            "schema_text": "",
+                            "partition": "",
+                            "fetch_status": "pending",
+                            "fetch_error": ""
+                        })
+                    st.rerun()
+
+        # 一键拉取按钮
+        _pending_items = [x for x in st.session_state[items_key] if x.get("fetch_status") in ("pending", "error")]
+        if _pending_items:
+            _pending_count = len(_pending_items)
+            _btn_label = f"一键拉取全部未拉取的表（{_pending_count} 张）" if _pending_count > 1 else f"一键拉取 {_pending_items[0]['name']}"
+            if st.button(
+                _btn_label,
+                key=f"{state_prefix}_batch_fetch",
+                type="primary",
+                use_container_width=True
+            ):
+                _oe = get_odps_entry(
+                    st.session_state.get("odps_ak", "").strip(),
+                    st.session_state.get("odps_sk", "").strip(),
+                    st.session_state.get("odps_project", "").strip(),
+                    st.session_state.get("odps_endpoint", "").strip(),
+                )
+                _ok_count = 0
+                _fail_count = 0
+                _progress = st.progress(0.0)
+                for _idx, _item in enumerate(_pending_items):
+                    _progress.progress((_idx) / len(_pending_items))
+                    with st.spinner(f"正在拉取 {_item['name']}（{_idx+1}/{len(_pending_items)}）..."):
+                        try:
+                            _schema = get_table_schema_text(_oe, _item["name"])
+                            for saved_item in st.session_state[items_key]:
+                                if saved_item["id"] == _item["id"]:
+                                    saved_item["schema_text"] = _schema
+                                    saved_item["fetch_status"] = "ok"
+                                    saved_item["fetch_error"] = ""
+                                    break
+                            _ok_count += 1
+                        except Exception as e:
+                            for saved_item in st.session_state[items_key]:
+                                if saved_item["id"] == _item["id"]:
+                                    saved_item["fetch_status"] = "error"
+                                    saved_item["fetch_error"] = str(e)
+                                    break
+                            _fail_count += 1
+                _progress.progress(1.0)
+                if _ok_count and not _fail_count:
+                    st.success(f"全部拉取成功（{_ok_count} 张）。")
+                elif _ok_count and _fail_count:
+                    st.warning(f"成功 {_ok_count} 张，失败 {_fail_count} 张。失败的表可修正后重新拉取。")
+                else:
+                    st.error(f"全部拉取失败（{_fail_count} 张）。请检查表名和权限后重新拉取。")
                 st.rerun()
+        else:
+            _has_items = bool(st.session_state[items_key])
+            _all_ok = all(x.get("fetch_status") == "ok" for x in st.session_state[items_key]) if _has_items else False
+            if _has_items and _all_ok:
+                st.caption("所有表已拉取成功。")
 
     # ===== 统一渲染行列表 =====
     if not st.session_state[items_key]:
@@ -1907,19 +1972,20 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
 
     for index, item in enumerate(list(st.session_state[items_key]), start=1):
         with st.container(border=True):
-            # 行：表名 | 分区 | 操作
+            # 行：表名+状态 | 分区 | 删除
             _c_name, _c_pt, _c_del = st.columns([5, 3, 1])
 
             with _c_name:
+                st.markdown(f"**{index}. {item['name']}**")
                 if item.get("source") == "odps":
-                    st.markdown(f"**{index}. {item['name']}**")
-                    _fetched = bool(item.get("schema_text", ""))
-                    if _fetched:
-                        st.caption("已拉取表结构")
-                    else:
-                        st.caption("未拉取")
+                    _status = item.get("fetch_status", "pending")
+                    if _status == "ok":
+                        st.caption("已拉取")
+                    elif _status == "error":
+                        st.error(f"拉取失败：{item.get('fetch_error', '未知错误')}")
+                    elif _status == "pending":
+                        st.caption("待拉取")
                 else:
-                    st.markdown(f"**{index}. {item['name']}**")
                     st.caption("来自 xlsx 上传")
 
             with _c_pt:
@@ -1944,42 +2010,21 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
                     st.session_state[uploader_version_key] += 1
                     st.rerun()
 
-            # ODPS 模式下的拉取/预览按钮
-            if item.get("source") == "odps":
-                _c_fetch, _c_preview = st.columns(2)
-                with _c_fetch:
-                    if st.button("拉取表结构", key=f"{state_prefix}_fetch_{item['id']}", use_container_width=True):
-                        _oe = get_odps_entry(
-                            st.session_state.get("odps_ak", "").strip(),
-                            st.session_state.get("odps_sk", "").strip(),
-                            st.session_state.get("odps_project", "").strip(),
-                            st.session_state.get("odps_endpoint", "").strip(),
-                        )
-                        with st.spinner(f"正在拉取 {item['name']}..."):
-                            try:
-                                _schema = get_table_schema_text(_oe, item["name"])
-                                for saved_item in st.session_state[items_key]:
-                                    if saved_item["id"] == item["id"]:
-                                        saved_item["schema_text"] = _schema
-                                        break
-                                st.success(f"已拉取 {item['name']} 的表结构")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"拉取失败：{e}")
-                with _c_preview:
-                    if st.button("预览数据(20行)", key=f"{state_prefix}_pv_{item['id']}", use_container_width=True):
-                        _oe = get_odps_entry(
-                            st.session_state.get("odps_ak", "").strip(),
-                            st.session_state.get("odps_sk", "").strip(),
-                            st.session_state.get("odps_project", "").strip(),
-                            st.session_state.get("odps_endpoint", "").strip(),
-                        )
-                        with st.spinner(f"正在预览 {item['name']}..."):
-                            try:
-                                _df = preview_table_data(_oe, item["name"])
-                                st.dataframe(_df, use_container_width=True, height=250)
-                            except Exception as e:
-                                st.error(f"预览失败：{e}")
+            # ODPS 模式：单行预览数据按钮
+            if item.get("source") == "odps" and item.get("fetch_status") == "ok":
+                if st.button("预览数据(20行)", key=f"{state_prefix}_pv_{item['id']}", use_container_width=True):
+                    _oe = get_odps_entry(
+                        st.session_state.get("odps_ak", "").strip(),
+                        st.session_state.get("odps_sk", "").strip(),
+                        st.session_state.get("odps_project", "").strip(),
+                        st.session_state.get("odps_endpoint", "").strip(),
+                    )
+                    with st.spinner(f"正在预览 {item['name']}..."):
+                        try:
+                            _df = preview_table_data(_oe, item["name"])
+                            st.dataframe(_df, use_container_width=True, height=250)
+                        except Exception as e:
+                            st.error(f"预览失败：{e}")
 
             # 显示表结构内容（折叠）
             _show = st.checkbox(
@@ -1989,7 +2034,10 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
             if _show:
                 _preview_text = item.get("schema_text", "")
                 if not _preview_text:
-                    st.caption("暂无表结构内容。ODPS 模式请先点『拉取表结构』。")
+                    if item.get("source") == "odps":
+                        st.caption("暂无表结构内容，请先拉取。")
+                    else:
+                        st.caption("暂无内容。")
                 else:
                     if len(_preview_text) > 8000:
                         _preview_text = _preview_text[:8000] + "\n\n......内容过长，已截断预览......"

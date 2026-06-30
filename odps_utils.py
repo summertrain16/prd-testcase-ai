@@ -159,8 +159,20 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
         - 成功且有数据：返回 (DataFrame, None)，超过 max_rows 会截断
         - 失败：返回 (空 DataFrame, 错误字符串)
     """
+    # 预处理 SQL 文本：
+    # 1. 去除尾部分号（MaxCompute execute_sql 不接受以 ; 结尾，会把分号后空内容当第二语句报错）
+    # 2. 去除多余空白行
+    sql_clean = sql_text.strip()
+    while sql_clean.endswith(";"):
+        sql_clean = sql_clean[:-1].rstrip()
+    # 去除 SQL 前后的注释外多余空行
+    sql_clean = sql_clean.strip()
+
+    if not sql_clean:
+        return pd.DataFrame(), "SQL 内容为空"
+
     try:
-        instance = odps_entry.execute_sql(sql_text)
+        instance = odps_entry.execute_sql(sql_clean)
     except Exception as e:
         return pd.DataFrame(), f"SQL 执行失败：{e}"
 

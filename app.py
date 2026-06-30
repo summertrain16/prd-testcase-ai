@@ -67,7 +67,7 @@ _ENV_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 # =========================
 
 st.set_page_config(
-    page_title="PRD 测试用例生成",
+    page_title="DataTest 自动化平台",
     page_icon=None,
     layout="wide"
 )
@@ -77,9 +77,9 @@ inject_custom_css()
 st.markdown(
     """
 <div class="app-hero">
-    <div class="app-hero-title">PRD 测试用例生成工具</div>
+    <div class="app-hero-title">DataTest 自动化平台</div>
     <div class="app-hero-desc">
-        从 PRD、会议纪要、表结构和开发代码中提炼数据测试需求，自动生成测试用例与 SQL 校验脚本。
+        智能解析 PRD 需求，自动生成数据测试用例与 SQL 校验脚本，驱动数据质量保障全流程。
     </div>
 </div>
     """,

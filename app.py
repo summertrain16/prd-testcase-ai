@@ -35,6 +35,7 @@ from markdown_utils import (
     remove_pending_points_section,
     extract_sql_section_from_test_result,
     extract_sql_code_blocks,
+    parse_markdown_tables,
 )
 from ui_components import (
     inject_custom_css,
@@ -843,11 +844,30 @@ elif st.session_state["current_step"] == STEP_FINAL:
             expanded=True
         )
 
+        # ===== 下载最终版需求提炼表（Excel） =====
+        _final_text = st.session_state["prd_final_analysis_result"]
+        _final_tables = parse_markdown_tables(_final_text)
+
+        _final_excel_data = io.BytesIO()
+        with pd.ExcelWriter(_final_excel_data, engine="openpyxl") as _fwriter:
+            if _final_tables:
+                for _fti, _ftable in enumerate(_final_tables, 1):
+                    # Sheet 名最长 31 字符，Excel 限制
+                    _sheet_name = _ftable["title"][:31] if _ftable["title"] else f"Table{_fti}"
+                    _final_df = pd.DataFrame(_ftable["rows"], columns=_ftable["columns"])
+                    _final_df.to_excel(_fwriter, sheet_name=_sheet_name, index=False)
+            else:
+                # 没有表格，整段文本放一个 Sheet
+                _final_df = pd.DataFrame({"需求提炼表": _final_text.split("\n")})
+                _final_df.to_excel(_fwriter, sheet_name="需求提炼表", index=False)
+
+        _final_excel_data.seek(0)
+
         st.download_button(
-            label="下载需求提炼表",
-            data=st.session_state["prd_final_analysis_result"],
-            file_name="prd_最终版需求提炼表.md",
-            mime="text/markdown"
+            label="📥 下载需求提炼表（Excel）",
+            data=_final_excel_data,
+            file_name="prd_最终版需求提炼表.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
         st.divider()

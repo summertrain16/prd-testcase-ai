@@ -27,7 +27,13 @@ def get_odps_entry(ak, sk, project, endpoint):
     if not all([ak, sk, endpoint]):
         return None
     project = project.strip() if project else None
-    return ODPS(ak, sk, project=project, endpoint=endpoint)
+    o = ODPS(ak, sk, project=project, endpoint=endpoint)
+    # 把原始凭证存到自定义属性上，run_single_sql 重建连接时用
+    o._user_ak = ak
+    o._user_sk = sk
+    o._user_project = project
+    o._user_endpoint = endpoint
+    return o
 
 
 def test_odps_connection(odps_entry):
@@ -190,22 +196,32 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
         return pd.DataFrame(), "SQL 内容为空"
 
     # 从 SQL 中提取项目名（如果表名带 项目名.表名 格式）
-    # 用于在 odps_entry.project 为 None 时临时指定 project
-    _sql_project = None
+    # 用于在 odps_entry project 为 None 时临时指定 project
     import re as _re
+    _sql_project = None
     _proj_match = _re.search(r'\bFROM\s+(\w+)\.(\w+)', sql_clean, _re.IGNORECASE)
     if _proj_match:
         _sql_project = _proj_match.group(1)
 
     _exec_odps = odps_entry
-    if odps_entry.project is None and _sql_project:
+    _user_project = getattr(odps_entry, '_user_project', None)
+    _user_ak = getattr(odps_entry, '_user_ak', None)
+    _user_sk = getattr(odps_entry, '_user_sk', None)
+    _user_endpoint = getattr(odps_entry, '_user_endpoint', None)
+
+    if not _user_project and _sql_project:
         # project 为空但 SQL 中有项目前缀，用提取到的 project 重建连接
         _exec_odps = ODPS(
-            odps_entry.account.access_id,
-            odps_entry.account.secret_access_key,
+            _user_ak,
+            _user_sk,
             project=_sql_project,
-            endpoint=odps_entry.endpoint
+            endpoint=_user_endpoint
         )
+        # 同样存凭证
+        _exec_odps._user_ak = _user_ak
+        _exec_odps._user_sk = _user_sk
+        _exec_odps._user_project = _sql_project
+        _exec_odps._user_endpoint = _user_endpoint
 
     try:
         instance = _exec_odps.execute_sql(sql_clean)
@@ -216,9 +232,11 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
             instance = _exec_odps.run_sql(sql_clean)
             instance.wait_for_success()
         except Exception as e2:
+            _proj_info = f"配置的 project: {_user_project or '(空)'}, SQL 提取的 project: {_sql_project or '(无)'}"
             return pd.DataFrame(), (
                 f"SQL 执行失败（同步）：{_err_msg}\n"
                 f"SQL 执行失败（异步）：{e2}\n"
+                f"{_proj_info}\n"
                 f"--- 完整 SQL 文本 ---\n{sql_clean}"
             )
 

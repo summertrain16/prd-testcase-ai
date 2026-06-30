@@ -357,3 +357,66 @@ def escape_sql_block_comment(text: str) -> str:
         return ""
 
     return text.replace("*/", "* /")
+
+
+def parse_markdown_tables(markdown_text: str) -> list[dict]:
+    """
+    从 Markdown 文本中提取所有表格，返回可供直接写入 Excel 的结构。
+
+    返回格式：
+    [
+        {"title": "上方最近的标题（无则 Table N）", "columns": [...], "rows": [[...], ...]},
+        ...
+    ]
+
+    用途：把 LLM 输出的需求提炼表 Markdown 转成 Excel 多 Sheet。
+    """
+    if not markdown_text:
+        return []
+
+    lines = markdown_text.splitlines()
+    tables = []
+    current_title = ""
+    i = 0
+
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # 记录最近的标题行（# 开头）
+        if re.match(r"^#{1,6}\s+", line):
+            current_title = re.sub(r"^#{1,6}\s+", "", line).strip()
+
+        # 找到表格起始行（以 | 开头且包含 |）
+        if line.startswith("|") and "|" in line[1:]:
+            table_lines = []
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                table_lines.append(lines[i].strip())
+                i += 1
+
+            # 解析表格
+            if len(table_lines) >= 2:
+                header_cells = [c.strip() for c in table_lines[0].strip("|").split("|")]
+
+                # 第二行是分隔行
+                if not is_markdown_separator_row(header_cells) and is_markdown_separator_row(
+                    [c.strip() for c in table_lines[1].strip("|").split("|")]
+                ):
+                    data_rows = []
+                    for row_line in table_lines[2:]:
+                        cells = [c.strip() for c in row_line.strip("|").split("|")]
+                        # 补齐列数
+                        if len(cells) < len(header_cells):
+                            cells = cells + [""] * (len(header_cells) - len(cells))
+                        data_rows.append(cells)
+
+                    title = current_title if current_title else f"Table {len(tables) + 1}"
+                    tables.append({
+                        "title": title,
+                        "columns": header_cells,
+                        "rows": data_rows
+                    })
+            continue
+
+        i += 1
+
+    return tables

@@ -141,6 +141,9 @@ def is_partitioned_table(odps_entry, table_name):
 def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
     """执行单段 SQL，返回 (DataFrame, 错误信息)。
 
+    用 tunnel reader 读取结果，绕过 execute_sql open_reader 的 schema 问题
+    （某些场景 reader._schema.columns 取值会触发 Unsupported getitem value: None）。
+
     结果超过 max_rows 行会自动截断，避免撑爆内存。
 
     参数：
@@ -156,19 +159,37 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
     """
     try:
         instance = odps_entry.execute_sql(sql_text)
-        with instance.open_reader() as reader:
+
+        # 优先用 tunnel reader 读结果，和 preview_table_data 同一套机制
+        # open_reader(tunnel=True) 走 tunnel 通道，不依赖 _schema.columns
+        with instance.open_reader(tunnel=True) as reader:
             total = reader.count
             if total == 0:
                 return pd.DataFrame(), None
 
-            cols = [c.name for c in reader._schema.columns]
-            truncated = total > max_rows
+            # 通过 reader 取列名，优先用 _schema.columns；取不到则退化为第一行 keys
+            try:
+                cols = [c.name for c in reader._schema.columns]
+            except Exception:
+                # 兜底：读第一条记录的 keys
+                cols = None
 
             rows = []
+            first_record = None
             for i, record in enumerate(reader):
                 if i >= max_rows:
                     break
+                if i == 0:
+                    first_record = record
                 rows.append(record.values)
+
+            if cols is None and first_record is not None:
+                try:
+                    cols = list(first_record.keys())
+                except Exception:
+                    cols = [f"col_{j+1}" for j in range(len(rows[0]) if rows else 0)]
+
+            truncated = total > max_rows
 
             df = pd.DataFrame(rows, columns=cols)
             if truncated:

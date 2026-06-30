@@ -162,19 +162,47 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
     # 预处理 SQL 文本：
     # 1. 去除尾部分号（MaxCompute execute_sql 不接受以 ; 结尾，会把分号后空内容当第二语句报错）
     # 2. 去除多余空白行
+    # 3. 如果 SQL 以块注释 /* ... */ 开头，execute_sql 可能不认，需要清理掉纯注释行
     sql_clean = sql_text.strip()
     while sql_clean.endswith(";"):
         sql_clean = sql_clean[:-1].rstrip()
-    # 去除 SQL 前后的注释外多余空行
+
+    # 如果整段 SQL 被包在 /* ... */ 注释里（某些 LLM 输出会这样），提取注释后的 SQL
+    # 但保留行内注释，只处理"整段以 /* 开头且前面没有 SQL 语句"的情况
+    lines = sql_clean.split("\n")
+    # 检查是否开头是一整块注释（连续 /* 到 */ ），后面才是 SQL
+    stripped_first = lines[0].strip() if lines else ""
+    if stripped_first.startswith("/*"):
+        # 找 */ 结束行
+        comment_end_idx = None
+        for idx, line in enumerate(lines):
+            if "*/" in line:
+                comment_end_idx = idx
+                break
+        if comment_end_idx is not None and comment_end_idx < len(lines) - 1:
+            # 注释块后面还有内容，去掉注释块
+            sql_clean = "\n".join(lines[comment_end_idx + 1:]).strip()
+
+    # 去除行首行尾空白
     sql_clean = sql_clean.strip()
 
     if not sql_clean:
         return pd.DataFrame(), "SQL 内容为空"
 
+    # 调试：在页面上显示最终执行的 SQL 前 200 字符，方便排查
+    _preview = sql_clean[:200].replace("\n", " ")
+    st.caption(f"实际执行 SQL（前200字符）：{_preview}...")
+
     try:
         instance = odps_entry.execute_sql(sql_clean)
     except Exception as e:
-        return pd.DataFrame(), f"SQL 执行失败：{e}"
+        _err_msg = str(e)
+        # 如果 execute_sql 报错，尝试用 run_sql + wait_for_success（异步方式有时能绕过）
+        try:
+            instance = odps_entry.run_sql(sql_clean)
+            instance.wait_for_success()
+        except Exception as e2:
+            return pd.DataFrame(), f"SQL 执行失败（同步）：{_err_msg}\nSQL 执行失败（异步）：{e2}"
 
     # 方案 1：instance.to_pandas()（PyODPS 0.12.0+，内部自动处理 schema）
     try:

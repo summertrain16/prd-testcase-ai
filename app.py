@@ -26,6 +26,7 @@ from prompts import (
     PRD_FINAL_ANALYSIS_PROMPT,
     PRD_ITERATIVE_PENDING_ANALYSIS_PROMPT,
     TEST_GEN_PROMPT,
+    SQL_DIFF_ANALYSIS_PROMPT,
 )
 from llm_utils import call_llm, is_llm_error
 from file_utils import read_uploaded_file
@@ -301,6 +302,7 @@ odps_sk = "你的AccessKey Secret"
         st.session_state["result_schema_mode"] = ""
         # 清空 SQL 执行结果缓存
         st.session_state["sql_run_results"] = {}
+        st.session_state["batch_diff_analysis"] = ""
         # 清空 ODPS 连接缓存（下次用新配置重建）
         get_odps_entry.clear()
         st.rerun()
@@ -1001,7 +1003,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                     st.session_state["sql_run_results"] = {}
 
                 # 一键执行全部
-                _col_batch, _col_clear = st.columns([3, 1])
+                _col_batch, _col_clear, _col_analyze = st.columns([3, 1, 2])
                 with _col_batch:
                     if st.button("一键执行全部 SQL", type="primary", use_container_width=True, key="batch_run_sql"):
                         _progress = st.progress(0.0)
@@ -1021,19 +1023,85 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                 with _col_clear:
                     if st.button("清空执行结果", use_container_width=True, key="clear_run_results"):
                         st.session_state["sql_run_results"] = {}
+                        st.session_state["batch_diff_analysis"] = ""
+                        for _ci in range(1, len(_sql_blocks) + 1):
+                            st.session_state.pop(f"sql_diff_analysis_{_ci}", None)
                         st.rerun()
+                with _col_analyze:
+                    # 检查是否有差异结果（非空且非报错）
+                    _has_diff = any(
+                        v.get("df") is not None and not v.get("df").empty and not v.get("err")
+                        for v in st.session_state["sql_run_results"].values()
+                    )
+                    if _has_diff and st.button("🤖 一键分析所有差异", type="primary", use_container_width=True, key="batch_analyze_diff"):
+                        with st.spinner("AI 汇总分析中..."):
+                            _batch_content_parts = []
+                            for _bi, _bv in st.session_state["sql_run_results"].items():
+                                if _bv.get("df") is not None and not _bv.get("df").empty and not _bv.get("err"):
+                                    _batch_sql = st.session_state.get(f"sql_edit_{_bi}", _sql_blocks[_bi - 1])
+                                    _diff_sample = _bv["df"].head(30).to_csv(index=False)
+                                    _batch_content_parts.append(f"""
+--- SQL-{_bi:03d} ---
+
+校验 SQL：
+```sql
+{_batch_sql}
+```
+
+差异结果（前 30 行）：
+{_diff_sample}
+""")
+                            _batch_content = "\n".join(_batch_content_parts)
+                            _batch_content = f"""
+以下是多段校验 SQL 的执行差异结果汇总，共 {len(_batch_content_parts)} 段有差异：
+
+{_batch_content}
+
+请对每段 SQL 的差异原因进行简要分析，并在最后给出整体汇总建议。
+"""
+                            _batch_analysis = call_llm(SQL_DIFF_ANALYSIS_PROMPT, _batch_content)
+                            if is_llm_error(_batch_analysis):
+                                st.error(_batch_analysis)
+                            else:
+                                st.session_state["batch_diff_analysis"] = _batch_analysis
+                                st.rerun()
+
+                # 展示汇总分析结果
+                _batch_analysis_cached = st.session_state.get("batch_diff_analysis", "")
+                if _batch_analysis_cached:
+                    st.markdown("---")
+                    st.markdown("#### 🤖 汇总差异分析报告")
+                    render_markdown_in_scroll_box(
+                        title="汇总差异分析",
+                        markdown_text=_batch_analysis_cached,
+                        height=500,
+                        expanded=True
+                    )
 
                 # 逐段展示 + 执行
                 for _i, _sql_block in enumerate(_sql_blocks, 1):
                     with st.expander(f"SQL-{_i:03d}", expanded=False):
-                        st.code(_sql_block, language="sql")
+                        # 可编辑 SQL 文本框
+                        _edit_key = f"sql_edit_{_i}"
+                        if _edit_key not in st.session_state:
+                            st.session_state[_edit_key] = _sql_block
+                        _edited_sql = st.text_area(
+                            "SQL（可编辑修改后重跑）",
+                            key=_edit_key,
+                            height=300,
+                            label_visibility="collapsed"
+                        )
 
-                        _c_run, _c_export = st.columns([3, 2])
+                        _c_run, _c_reset, _c_export = st.columns([2, 1, 2])
                         with _c_run:
                             if st.button("执行", key=f"run_sql_{_i}"):
                                 with st.spinner("执行中..."):
-                                    _df_result, _err = run_single_sql(_odps_entry_run, _sql_block)
+                                    _df_result, _err = run_single_sql(_odps_entry_run, _edited_sql)
                                 st.session_state["sql_run_results"][_i] = {"df": _df_result, "err": _err}
+                                st.rerun()
+                        with _c_reset:
+                            if st.button("恢复原始", key=f"reset_sql_{_i}"):
+                                st.session_state[_edit_key] = _sql_block
                                 st.rerun()
 
                         # 展示已有结果
@@ -1059,6 +1127,49 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                                         mime="text/csv",
                                         use_container_width=True,
                                         key=f"download_csv_{_i}"
+                                    )
+
+                                # ===== 逐段 AI 差异分析 =====
+                                _analysis_key = f"sql_diff_analysis_{_i}"
+                                if st.button("🤖 AI 分析差异原因", key=f"analyze_diff_{_i}"):
+                                    with st.spinner("AI 分析中..."):
+                                        _diff_sample = _cached["df"].head(50).to_csv(index=False)
+                                        _analysis_content = f"""
+以下是执行的校验 SQL：
+
+```sql
+{_edited_sql}
+```
+
+以下是 SQL 执行返回的差异结果（前 50 行）：
+
+{_diff_sample}
+
+请分析差异原因并给出建议。分析要点：
+1. 差异数据的整体特征（差异行数、涉及哪些字段、差异值的模式）
+2. 可能的差异原因（如：口径不一致、分区取值不同、关联条件导致数据放大/丢失、NULL 处理差异、枚举映射错误、金额精度问题等）
+3. 需要进一步确认的问题
+4. 修复建议
+"""
+                                        _analysis_result = call_llm(
+                                            SQL_DIFF_ANALYSIS_PROMPT,
+                                            _analysis_content
+                                        )
+                                        if is_llm_error(_analysis_result):
+                                            st.error(_analysis_result)
+                                        else:
+                                            st.session_state[_analysis_key] = _analysis_result
+                                            st.rerun()
+
+                                _analysis_cached = st.session_state.get(_analysis_key, "")
+                                if _analysis_cached:
+                                    st.markdown("---")
+                                    st.markdown("#### 🤖 AI 差异分析报告")
+                                    render_markdown_in_scroll_box(
+                                        title="差异分析",
+                                        markdown_text=_analysis_cached,
+                                        height=400,
+                                        expanded=True
                                     )
         else:
             st.info("未配置 ODPS 连接，仅支持下载 SQL 脚本手动执行。配置方法见侧边栏 ODPS 连接配置。")

@@ -322,18 +322,49 @@ def extract_sql_section_from_test_result(result_text: str) -> str:
 
 def extract_sql_code_blocks(markdown_text: str) -> list[str]:
     """
-    提取 Markdown 中的 sql 代码块。
+    提取 Markdown 中的 sql 代码块，并按 SQL 语句边界拆分。
+
+    LLM 可能将多段 SQL 放在同一个 ```sql 代码块中，
+    用分号 + 空行 + SQL注释(/* SQL-NNN */) 或新语句关键字(WITH/SELECT...)分隔。
+    本函数先提取代码块，再在块内按语句边界拆分。
     """
     if not markdown_text:
         return []
 
-    blocks = re.findall(
+    # Step 1: 提取所有 ```sql 代码块
+    raw_blocks = re.findall(
         r"```(?:sql|SQL)?\s*\n(.*?)```",
         markdown_text,
         flags=re.DOTALL
     )
 
-    return [block.strip() for block in blocks if block.strip()]
+    result = []
+    for block in raw_blocks:
+        block = block.strip()
+        if not block:
+            continue
+
+        # Step 2: 在代码块内按 SQL 语句边界拆分
+        # 边界特征：分号 + 至少一个空行 + 下一段开头（/* 注释 或 WITH/SELECT 等关键字）
+        segments = re.split(
+            r';\s*\n\s*\n(?=(?:/\*|WITH\b|SELECT\b|INSERT\b|CREATE\b|DROP\b|ALTER\b))',
+            block,
+            flags=re.IGNORECASE
+        )
+
+        if len(segments) > 1:
+            for i, seg in enumerate(segments):
+                seg = seg.strip()
+                if not seg:
+                    continue
+                # 除最后一段外，补回被 split 吃掉的分号
+                if i < len(segments) - 1:
+                    seg = seg + ';'
+                result.append(seg)
+        else:
+            result.append(block)
+
+    return [s for s in result if s.strip()]
 
 
 def strip_markdown_fence(text: str) -> str:

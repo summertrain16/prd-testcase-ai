@@ -200,14 +200,38 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
             if total == 0:
                 return pd.DataFrame(), None
 
-            # 旧接口 _schema.columns 通常可用
-            cols = [c.name for c in reader._schema.columns]
+            # 旧接口取列名，包 try-except
+            try:
+                cols = [c.name for c in reader._schema.columns]
+            except Exception:
+                cols = None
 
             rows = []
+            first_record = None
             for i, record in enumerate(reader):
                 if i >= max_rows:
                     break
-                rows.append(record.values)
+                if i == 0:
+                    first_record = record
+                # 不用 record.values（可能触发 None），改用按列名逐个取值
+                if cols:
+                    row = []
+                    for col_name in cols:
+                        try:
+                            row.append(record[col_name])
+                        except Exception:
+                            row.append(None)
+                    rows.append(row)
+                else:
+                    # 没有列名时才用 values
+                    rows.append(record.values)
+
+            # 兜底取列名
+            if not cols and first_record is not None:
+                try:
+                    cols = list(first_record.keys())
+                except Exception:
+                    cols = [f"col_{j+1}" for j in range(len(rows[0]) if rows else 0)]
 
             truncated = total > max_rows
             df = pd.DataFrame(rows, columns=cols)

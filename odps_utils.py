@@ -202,7 +202,11 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
             instance = odps_entry.run_sql(sql_clean)
             instance.wait_for_success()
         except Exception as e2:
-            return pd.DataFrame(), f"SQL 执行失败（同步）：{_err_msg}\nSQL 执行失败（异步）：{e2}"
+            return pd.DataFrame(), (
+                f"SQL 执行失败（同步）：{_err_msg}\n"
+                f"SQL 执行失败（异步）：{e2}\n"
+                f"--- 完整 SQL 文本 ---\n{sql_clean}"
+            )
 
     # 方案 1：instance.to_pandas()（PyODPS 0.12.0+，内部自动处理 schema）
     try:

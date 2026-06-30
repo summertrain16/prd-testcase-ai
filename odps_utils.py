@@ -189,17 +189,31 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
     if not sql_clean:
         return pd.DataFrame(), "SQL 内容为空"
 
-    # 调试：在页面上显示最终执行的 SQL 前 200 字符，方便排查
-    _preview = sql_clean[:200].replace("\n", " ")
-    st.caption(f"实际执行 SQL（前200字符）：{_preview}...")
+    # 从 SQL 中提取项目名（如果表名带 项目名.表名 格式）
+    # 用于在 odps_entry.project 为 None 时临时指定 project
+    _sql_project = None
+    import re as _re
+    _proj_match = _re.search(r'\bFROM\s+(\w+)\.(\w+)', sql_clean, _re.IGNORECASE)
+    if _proj_match:
+        _sql_project = _proj_match.group(1)
+
+    _exec_odps = odps_entry
+    if odps_entry.project is None and _sql_project:
+        # project 为空但 SQL 中有项目前缀，用提取到的 project 重建连接
+        _exec_odps = ODPS(
+            odps_entry.account.access_id,
+            odps_entry.account.secret_access_key,
+            project=_sql_project,
+            endpoint=odps_entry.endpoint
+        )
 
     try:
-        instance = odps_entry.execute_sql(sql_clean)
+        instance = _exec_odps.execute_sql(sql_clean)
     except Exception as e:
         _err_msg = str(e)
         # 如果 execute_sql 报错，尝试用 run_sql + wait_for_success（异步方式有时能绕过）
         try:
-            instance = odps_entry.run_sql(sql_clean)
+            instance = _exec_odps.run_sql(sql_clean)
             instance.wait_for_success()
         except Exception as e2:
             return pd.DataFrame(), (

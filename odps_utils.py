@@ -141,8 +141,10 @@ def is_partitioned_table(odps_entry, table_name):
 def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
     """执行单段 SQL，返回 (DataFrame, 错误信息)。
 
-    用 tunnel reader 读取结果，绕过 execute_sql open_reader 的 schema 问题
-    （某些场景 reader._schema.columns 取值会触发 Unsupported getitem value: None）。
+    多路兜底读取结果：
+    1. instance.to_pandas() — PyODPS 0.12.0+ 内置方法，自动处理 schema
+    2. open_reader(tunnel=True).to_pandas() — Instance Tunnel 通道
+    3. open_reader(tunnel=False) — 旧 Results 接口
 
     结果超过 max_rows 行会自动截断，避免撑爆内存。
 
@@ -159,41 +161,61 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
     """
     try:
         instance = odps_entry.execute_sql(sql_text)
+    except Exception as e:
+        return pd.DataFrame(), f"SQL 执行失败：{e}"
 
-        # 优先用 tunnel reader 读结果，和 preview_table_data 同一套机制
-        # open_reader(tunnel=True) 走 tunnel 通道，不依赖 _schema.columns
+    # 方案 1：instance.to_pandas()（PyODPS 0.12.0+，内部自动处理 schema）
+    try:
+        df = instance.to_pandas()
+        if df is None or df.empty:
+            return pd.DataFrame(), None
+        truncated = len(df) > max_rows
+        if truncated:
+            df = df.head(max_rows)
+            st.warning(f"结果共 {len(df)} 行，已截断为前 {max_rows} 行。如需完整结果请导出 CSV 或优化 SQL。")
+        return df, None
+    except Exception as e1:
+        _err1 = str(e1)
+
+    # 方案 2：open_reader(tunnel=True) + reader.to_pandas()
+    try:
         with instance.open_reader(tunnel=True) as reader:
+            if reader.count == 0:
+                return pd.DataFrame(), None
+            df = reader.to_pandas()
+            if df is None or df.empty:
+                return pd.DataFrame(), None
+            truncated = len(df) > max_rows
+            if truncated:
+                df = df.head(max_rows)
+                st.warning(f"结果共 {len(df)} 行，已截断为前 {max_rows} 行。如需完整结果请导出 CSV 或优化 SQL。")
+            return df, None
+    except Exception as e2:
+        _err2 = str(e2)
+
+    # 方案 3：open_reader(tunnel=False) 旧 Results 接口 + 手动读取
+    try:
+        with instance.open_reader(tunnel=False) as reader:
             total = reader.count
             if total == 0:
                 return pd.DataFrame(), None
 
-            # 通过 reader 取列名，优先用 _schema.columns；取不到则退化为第一行 keys
-            try:
-                cols = [c.name for c in reader._schema.columns]
-            except Exception:
-                # 兜底：读第一条记录的 keys
-                cols = None
+            # 旧接口 _schema.columns 通常可用
+            cols = [c.name for c in reader._schema.columns]
 
             rows = []
-            first_record = None
             for i, record in enumerate(reader):
                 if i >= max_rows:
                     break
-                if i == 0:
-                    first_record = record
                 rows.append(record.values)
 
-            if cols is None and first_record is not None:
-                try:
-                    cols = list(first_record.keys())
-                except Exception:
-                    cols = [f"col_{j+1}" for j in range(len(rows[0]) if rows else 0)]
-
             truncated = total > max_rows
-
             df = pd.DataFrame(rows, columns=cols)
             if truncated:
                 st.warning(f"结果共 {total} 行，已截断为前 {max_rows} 行。如需完整结果请导出 CSV 或优化 SQL。")
             return df, None
-    except Exception as e:
-        return pd.DataFrame(), str(e)
+    except Exception as e3:
+        _err3 = str(e3)
+
+    # 全部失败
+    return pd.DataFrame(), f"SQL 执行成功但结果读取失败（3 种方式均失败）：\n1) to_pandas: {_err1}\n2) tunnel reader: {_err2}\n3) legacy reader: {_err3}"

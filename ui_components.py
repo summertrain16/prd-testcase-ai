@@ -610,7 +610,8 @@ def render_test_case_result_with_download(result_text: str) -> None:
     """
     渲染测试用例结果：
     - SQL 下载按钮放在最顶部
-    - 一、二、三三个章节各自包在可滚动容器里（st.container border + height）
+    - 一、二两个章节各自包在可滚动容器里（st.container border + height）
+    - 三、SQL 校验脚本 不再单独展示（和下方在线执行区重复）
     - 章节之间用 st.divider() 分隔
     """
     if not result_text:
@@ -647,12 +648,7 @@ def render_test_case_result_with_download(result_text: str) -> None:
         with st.container(height=600, border=True):
             st.markdown(sections["二"])
 
-    st.divider()
-
-    # 三、SQL 校验脚本 — 可滚动容器
-    if "三" in sections:
-        with st.container(height=700, border=True):
-            st.markdown(sections["三"])
+    # 三、SQL 校验脚本 — 不再单独展示，和下方在线执行区合并
 
 
 def render_pending_points_data_editor() -> None:

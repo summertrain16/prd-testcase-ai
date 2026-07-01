@@ -411,16 +411,14 @@ if st.session_state["current_step"] == STEP_INPUT:
         with st.expander("🗄️ 结果表表结构", expanded=False):
             result_table_schema = render_table_schema_uploader(
                 title="结果表表结构",
-                state_prefix="result_schema",
-                show_subheader=False
+                state_prefix="result_schema"
             )
             st.session_state["result_table_schema"] = result_table_schema
 
         with st.expander("📊 源表表结构", expanded=False):
             source_table_schema = render_table_schema_uploader(
                 title="源表表结构",
-                state_prefix="source_schema",
-                show_subheader=False
+                state_prefix="source_schema"
             )
             st.session_state["source_table_schema"] = source_table_schema
 

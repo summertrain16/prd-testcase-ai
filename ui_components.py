@@ -56,351 +56,330 @@ def get_materials_from_state() -> dict:
     }
 
 
-def inject_custom_css() -> None:
-    """
-    注入页面美化 CSS — Notion留白 + AntPro轻量化 + Vercel工程质感。
-    """
-    st.markdown(
-        """
-<style>
-/* ===== 全局 ===== */
+# ===== CSS Token 体系 =====
+# 设计令牌：颜色、字号、间距、阴影、圆角、过渡
+# 所有组件样式引用这些变量，改一处即全局生效
+
+_CSS_TOKENS = """
+:root {
+    /* ===== Neutral Palette — Slate 色阶 ===== */
+    --slate-900: #0F172A;   /* 标题文字 */
+    --slate-800: #1E293B;   /* 次级标题 */
+    --slate-700: #334155;   /* 正文文字 */
+    --slate-600: #475569;   /* 表头文字 */
+    --slate-500: #64748B;   /* 次要文字 */
+    --slate-400: #94A3B8;   /* 辅助文字 — 仅用于装饰，不用于正文 */
+    --slate-300: #CBD5E1;   /* 弱边框/占位符 — 仅装饰 */
+    --slate-200: #E2E8F0;   /* 默认边框 */
+    --slate-100: #F1F5F9;   /* 淡边框/分割线 */
+    --slate-50:  #F8FAFC;   /* 悬停背景 */
+    --neutral-50: #FAFAFA;  /* 折叠区/sidebar 背景 */
+
+    /* ===== Brand — Blue ===== */
+    --blue-700: #1D4ED8;    /* 主色悬停 */
+    --blue-600: #2563EB;    /* 主色 */
+    --blue-400: #60A5FA;    /* 主色点缀 */
+    --blue-50:  #EFF6FF;    /* 主色浅底 */
+
+    /* ===== Semantic Tokens ===== */
+    --color-text-primary:   var(--slate-900);
+    --color-text-body:      var(--slate-700);
+    --color-text-secondary: var(--slate-500);
+    --color-text-muted:     var(--slate-500);    /* 原 #94A3B8 对比度不足，改用 slate-500 */
+    --color-text-weak:      var(--slate-400);    /* 仅用于非文字装饰场景 */
+    --color-border-default: var(--slate-200);
+    --color-border-subtle:  var(--slate-100);
+    --color-bg-hover:       var(--slate-50);
+    --color-bg-subtle:      var(--neutral-50);
+    --color-bg-surface:     #FFFFFF;
+    --color-primary:        var(--blue-600);
+    --color-primary-hover:  var(--blue-700);
+    --color-primary-bg:     var(--blue-50);
+    --color-primary-accent: var(--blue-600);     /* 原 #60A5FA 对比度不足，改用 blue-600 */
+
+    /* ===== Typography Scale (1.125 ratio) ===== */
+    --font-size-xs:   11px;   /* 状态标签 */
+    --font-size-sm:   13px;   /* 表格、按钮、caption */
+    --font-size-base: 14px;   /* 正文、输入框 */
+    --font-size-md:   16px;   /* 重要正文 */
+    --font-size-lg:   18px;   /* h3 */
+    --font-size-xl:   22px;   /* h2 */
+    --font-size-2xl:  26px;   /* h1 */
+    --font-size-3xl:  28px;   /* hero 标题 */
+
+    /* ===== Spacing Scale (4px base) ===== */
+    --space-1:  4px;
+    --space-2:  8px;
+    --space-3:  12px;
+    --space-4:  16px;
+    --space-6:  24px;
+    --space-8:  32px;
+    --space-10: 40px;
+    --space-12: 48px;
+    --space-16: 64px;
+    --space-20: 80px;
+
+    /* ===== Radius ===== */
+    --radius-sm: 6px;
+    --radius-md: 8px;
+
+    /* ===== Transition ===== */
+    --transition-fast: 150ms ease;
+    --transition-normal: 300ms ease;
+}
+"""
+
+# ===== 全局布局 =====
+_CSS_LAYOUT = """
 .block-container {
-    padding-top: 2.5rem;
-    padding-bottom: 5rem;
+    padding-top: var(--space-10);
+    padding-bottom: var(--space-20);
     max-width: 1200px;
 }
 
 /* 字体层级 */
-h1 { font-size: 26px !important; font-weight: 700 !important; letter-spacing: -0.02em; color: #0F172A; }
-h2 { font-size: 22px !important; font-weight: 700 !important; letter-spacing: -0.01em; color: #0F172A; }
-h3 { font-size: 18px !important; font-weight: 600 !important; color: #0F172A; }
+h1 { font-size: var(--font-size-2xl) !important; font-weight: 700 !important; letter-spacing: -0.02em; color: var(--color-text-primary); }
+h2 { font-size: var(--font-size-xl) !important; font-weight: 700 !important; letter-spacing: -0.01em; color: var(--color-text-primary); }
+h3 { font-size: var(--font-size-lg) !important; font-weight: 600 !important; color: var(--color-text-primary); }
 
 /* 正文 */
 p, li {
-    font-size: 14px !important;
+    font-size: var(--font-size-base) !important;
     line-height: 1.7;
-    color: #334155;
+    color: var(--color-text-body);
 }
+"""
 
-/* ===== 顶部标题区 — Notion式白底，下划线分隔 ===== */
+# ===== Hero 区 =====
+_CSS_HERO = """
 .app-hero {
-    padding: 0 0 12px 0;
+    padding: 0 0 var(--space-3) 0;
     border-radius: 0;
     background: transparent;
-    border-bottom: 2px solid #0F172A;
-    margin-bottom: 28px;
+    border-bottom: 2px solid var(--color-text-primary);
+    margin-bottom: var(--space-6);
 }
 
 .app-hero-title {
-    font-size: 24px;
+    font-size: var(--font-size-3xl);
     font-weight: 700;
-    color: #0F172A;
-    margin-bottom: 4px;
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-1);
     letter-spacing: -0.03em;
 }
 
 .app-hero-desc {
-    font-size: 13px;
-    color: #64748B;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
     line-height: 1.5;
 }
+"""
 
-/* ===== 步骤进度卡片 — 克制，蓝色仅点缀 ===== */
-.step-card {
-    padding: 14px 12px;
-    border-radius: 6px;
-    border: 1px solid #E2E8F0;
-    background: #FFFFFF;
-    text-align: center;
-    min-height: 64px;
-    transition: all 0.15s ease;
-}
-
-.step-card-active {
-    border: 1px solid #2563EB;
-    background: #EFF6FF;
-}
-
-.step-card-done {
-    border: 1px solid #E2E8F0;
-    background: #FAFAFA;
-}
-
-.step-card-title {
-    font-size: 13px;
-    font-weight: 500;
-    color: #64748B;
-    line-height: 1.4;
-}
-
-.step-card-active .step-card-title {
-    color: #2563EB;
-    font-weight: 600;
-}
-
-.step-card-done .step-card-title {
-    color: #94A3B8;
-}
-
-.step-card-status {
-    margin-top: 4px;
-    font-size: 11px;
-    color: #CBD5E1;
-    font-weight: 400;
-}
-
-.step-card-active .step-card-status {
-    color: #60A5FA;
-}
-
-.step-card-done .step-card-status {
-    color: #CBD5E1;
-}
-
-/* ===== 步骤说明卡片 — 去边框，Notion式底线 ===== */
+# ===== 步骤说明卡片 =====
+_CSS_PAGE_SECTION = """
 .page-section-card {
-    padding: 0 0 16px 0;
+    padding: 0 0 var(--space-4) 0;
     border-radius: 0;
     background: transparent;
     border: none;
-    border-bottom: 1px solid #F1F5F9;
-    margin-bottom: 24px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    margin-bottom: var(--space-6);
 }
 
 .page-section-title {
-    font-size: 24px;
+    font-size: var(--font-size-xl);
     font-weight: 700;
-    color: #0F172A;
-    margin-bottom: 2px;
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-1);
     letter-spacing: -0.01em;
 }
 
 .page-section-desc {
-    font-size: 14px;
-    color: #64748B;
+    font-size: var(--font-size-base);
+    color: var(--color-text-secondary);
     line-height: 1.5;
 }
+"""
 
-/* ===== 按钮 — 默认中性灰，蓝色仅primary ===== */
+# ===== 按钮样式 =====
+# 原 13 个选择器 + 30 处 !important → 精简为 4 条规则
+_CSS_BUTTONS = """
+/* 默认按钮 — 中性灰 */
 .stButton > button,
 .stDownloadButton > button {
-    border-radius: 6px !important;
+    border-radius: var(--radius-sm) !important;
     min-height: 36px;
     font-weight: 500 !important;
-    font-size: 13px !important;
-    transition: all 0.12s ease;
-    border: 1px solid #E2E8F0 !important;
-    background: #FFFFFF !important;
-    color: #334155 !important;
+    font-size: var(--font-size-sm) !important;
+    transition: all var(--transition-fast);
+    border: 1px solid var(--color-border-default) !important;
+    background: var(--color-bg-surface) !important;
+    color: var(--color-text-body) !important;
 }
 
 .stButton > button:hover,
 .stDownloadButton > button:hover {
-    border-color: #CBD5E1 !important;
-    background: #F8FAFC !important;
-    color: #0F172A !important;
+    border-color: var(--slate-300) !important;
+    background: var(--color-bg-hover) !important;
+    color: var(--color-text-primary) !important;
 }
 
-/* primary 按钮 — 蓝底白字，强制覆盖所有选择器 */
-.stButton > button[kind="primary"],
-div[data-testid="stButton"] > button[kind="primary"],
-.stButton > button[data-testid="stBaseButton-primary"],
-div[data-testid="stButton"] button[data-testid="stBaseButton-primary"],
-button[kind="primary"],
-button[data-testid="stBaseButton-primary"],
+/* Primary 按钮 — 蓝底白字（2 条规则替代原 13 个选择器） */
 .stButton button[kind="primary"],
-section[data-testid="stMain"] button[kind="primary"],
-div[class*="stButton"] button[kind="primary"] {
-    background: #2563EB !important;
-    color: #FFFFFF !important;
-    border: 1px solid #2563EB !important;
+.stDownloadButton button[kind="primary"] {
+    background: var(--color-primary) !important;
+    color: #fff !important;
+    border: 1px solid var(--color-primary) !important;
     font-weight: 500 !important;
 }
 
-.stButton > button[kind="primary"]:hover,
-div[data-testid="stButton"] > button[kind="primary"]:hover,
-.stButton > button[data-testid="stBaseButton-primary"]:hover,
-button[kind="primary"]:hover,
-button[data-testid="stBaseButton-primary"]:hover,
 .stButton button[kind="primary"]:hover,
-section[data-testid="stMain"] button[kind="primary"]:hover,
-div[class*="stButton"] button[kind="primary"]:hover {
-    background: #1D4ED8 !important;
-    border-color: #1D4ED8 !important;
-    color: #FFFFFF !important;
+.stDownloadButton button[kind="primary"]:hover {
+    background: var(--color-primary-hover) !important;
+    border-color: var(--color-primary-hover) !important;
+    color: #fff !important;
 }
 
-/* 兜底：任何带 primary 的按钮强制白字 */
-button[class*="primary"],
-button[class*="Primary"],
-.st-emotion-cache-1dumvfu,
-button.st-emotion-cache-1dumvfu,
-.stButton button.st-emotion-cache-1dumvfu {
-    color: #FFFFFF !important;
-    background: #2563EB !important;
-    border-color: #2563EB !important;
+/* Primary 按钮内部文字/图标保持白色 */
+.stButton button[kind="primary"] *,
+.stDownloadButton button[kind="primary"] * {
+    color: #fff !important;
+    fill: #fff !important;
 }
 
-/* ===== 输入框 ===== */
+/* 顶部步骤导航按钮 — 更大触摸目标 */
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
+    min-height: 44px;
+    border-radius: var(--radius-md) !important;
+    font-size: var(--font-size-sm) !important;
+    font-weight: 600 !important;
+}
+
+/* 独立按钮居中，columns 内左对齐 */
+div[data-testid="stButton"],
+div[data-testid="stDownloadButton"] {
+    display: flex !important;
+    justify-content: center !important;
+}
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"],
+div[data-testid="stHorizontalBlock"] div[data-testid="stDownloadButton"] {
+    justify-content: flex-start !important;
+}
+
+/* 焦点指示器 — 键盘可访问性 */
+.stButton > button:focus-visible,
+.stDownloadButton > button:focus-visible {
+    outline: 2px solid var(--color-primary) !important;
+    outline-offset: 2px !important;
+}
+"""
+
+# ===== 表单元素 =====
+_CSS_FORMS = """
 textarea, input {
-    border-radius: 6px !important;
-    font-size: 14px !important;
+    border-radius: var(--radius-sm) !important;
+    font-size: var(--font-size-base) !important;
 }
+"""
 
-/* ===== expander — 淡底色无边框 ===== */
+# ===== 容器组件 — expander / sidebar / table / alert / code =====
+_CSS_COMPONENTS = """
+/* expander — 淡底色 */
 div[data-testid="stExpander"] {
-    border-radius: 6px !important;
-    border: 1px solid #F1F5F9 !important;
-    background: #FAFAFA !important;
+    border-radius: var(--radius-sm) !important;
+    border: 1px solid var(--color-border-subtle) !important;
+    background: var(--color-bg-subtle) !important;
 }
 
-/* ===== sidebar ===== */
+/* sidebar */
 section[data-testid="stSidebar"] {
-    background: #FAFAFA;
-    border-right: 1px solid #F1F5F9;
+    background: var(--color-bg-subtle);
+    border-right: 1px solid var(--color-border-subtle);
 }
 
 section[data-testid="stSidebar"] h1,
 section[data-testid="stSidebar"] h2,
 section[data-testid="stSidebar"] h3 {
-    color: #0F172A;
-    font-size: 12px !important;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-sm) !important;
     font-weight: 600 !important;
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
 
-/* ===== data editor ===== */
+/* data editor */
 div[data-testid="stDataFrame"] {
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
 }
 
-/* ===== 分割线 — 极淡 ===== */
+/* 分割线 */
 hr {
     border: none;
-    border-top: 1px solid #F1F5F9;
-    margin-top: 2rem;
-    margin-bottom: 2rem;
+    border-top: 1px solid var(--color-border-subtle);
+    margin-top: var(--space-8);
+    margin-bottom: var(--space-8);
 }
 
-/* ===== alert — 去边框 ===== */
+/* alert */
 div[data-testid="stAlert"] {
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     border: none !important;
 }
 
-/* ===== 代码块 ===== */
+/* 代码块 */
 pre {
-    border-radius: 6px !important;
-    font-size: 13px !important;
+    border-radius: var(--radius-sm) !important;
+    font-size: var(--font-size-sm) !important;
 }
 
-/* ===== markdown 表格 ===== */
+/* markdown 表格 */
 table {
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     overflow: visible;
-    border: 1px solid #E2E8F0 !important;
+    border: 1px solid var(--color-border-default) !important;
     width: 100% !important;
     table-layout: auto !important;
 }
 
 th {
     font-weight: 600 !important;
-    font-size: 13px !important;
-    background: #F8FAFC !important;
-    color: #475569 !important;
+    font-size: var(--font-size-sm) !important;
+    background: var(--color-bg-hover) !important;
+    color: var(--slate-600) !important;
     white-space: normal !important;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
 }
 
 td {
-    font-size: 13px !important;
-    color: #334155 !important;
+    font-size: var(--font-size-sm) !important;
+    color: var(--color-text-body) !important;
     white-space: normal !important;
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
     vertical-align: top !important;
 }
 
-/* ===== tab ===== */
+/* tab */
 div[data-testid="stTabs"] {
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
 }
 
-/* ===== container(可滚动) — 细边框 ===== */
+/* 可滚动容器 */
 div[data-testid="stVerticalBlockBorderWrapper"] {
-    border: 1px solid #F1F5F9 !important;
-    border-radius: 6px !important;
+    border: 1px solid var(--color-border-subtle) !important;
+    border-radius: var(--radius-sm) !important;
 }
 
 /* element 间距 */
 .element-container {
-    margin-bottom: 8px;
+    margin-bottom: var(--space-2);
 }
+"""
 
-/* ===== 强制蓝底 primary 按钮内部文字为白色 ===== */
-.stButton button[kind="primary"] *,
-div[data-testid="stButton"] button[kind="primary"] *,
-button[kind="primary"] *,
-.stButton button[data-testid="stBaseButton-primary"] *,
-div[data-testid="stButton"] button[data-testid="stBaseButton-primary"] *,
-button[data-testid="stBaseButton-primary"] *,
-section[data-testid="stMain"] button[kind="primary"] *,
-div[class*="stButton"] button[kind="primary"] * {
-    color: #FFFFFF !important;
-    fill: #FFFFFF !important;
-}
-/* primary 按钮 hover 时，内部文字也保持白色 */
-.stButton button[kind="primary"]:hover *,
-div[data-testid="stButton"] button[kind="primary"]:hover *,
-button[kind="primary"]:hover *,
-.stButton button[data-testid="stBaseButton-primary"]:hover *,
-div[data-testid="stButton"] button[data-testid="stBaseButton-primary"]:hover *,
-button[data-testid="stBaseButton-primary"]:hover *,
-section[data-testid="stMain"] button[kind="primary"]:hover *,
-div[class*="stButton"] button[kind="primary"]:hover * {
-    color: #FFFFFF !important;
-    fill: #FFFFFF !important;
-}
-
-/* element 间距 */
-.element-container {
-    margin-bottom: 8px;
-}
-/* ===== 顶部步骤导航按钮 ===== */
-div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
-    min-height: 44px;
-    border-radius: 8px !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-}
-/* 顶部当前步骤 primary 按钮文字强制白色 */
-div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"],
-div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[data-testid="stBaseButton-primary"] {
-    background: #2563EB !important;
-    border-color: #2563EB !important;
-    color: #FFFFFF !important;
-}
-div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"] *,
-div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[data-testid="stBaseButton-primary"] * {
-    color: #FFFFFF !important;
-}
-
-/* ===== 独立按钮居中，宽度跟随文字自适应 ===== */
-div[data-testid="stButton"],
-div[data-testid="stDownloadButton"] {
-    display: flex !important;
-    justify-content: center !important;
-}
-/* columns 内的按钮保持原有对齐，不受居中影响 */
-div[data-testid="stHorizontalBlock"] div[data-testid="stButton"],
-div[data-testid="stHorizontalBlock"] div[data-testid="stDownloadButton"] {
-    justify-content: flex-start !important;
-}
-
-/* ===== 允许文字选中复制，禁止 Streamlit 默认右键菜单拦截 ===== */
-/* 恢复用户选中和右键能力 */
+# ===== 文字选中 / 右键恢复 =====
+_CSS_UTILITY = """
+/* 允许文字选中复制 */
 [data-testid="stAppViewContainer"],
 [data-testid="stAppViewContainer"] * {
     -webkit-user-select: text !important;
@@ -411,9 +390,75 @@ div[data-testid="stHorizontalBlock"] div[data-testid="stDownloadButton"] {
 div[data-testid="stAppViewBlockContainer"] {
     pointer-events: auto !important;
 }
+"""
 
-</style>
-        """,
+# ===== 响应式 — 3 个断点 =====
+_CSS_RESPONSIVE = """
+/* ===== 移动端 (≤768px) ===== */
+@media (max-width: 768px) {
+    .block-container {
+        max-width: 100% !important;
+        padding-left: var(--space-4) !important;
+        padding-right: var(--space-4) !important;
+    }
+    /* 步骤导航 2x2 网格 */
+    div[data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+        gap: var(--space-2) !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div {
+        flex: 0 0 48% !important;
+        min-width: 45% !important;
+    }
+    /* hero 标题缩小 */
+    .app-hero-title {
+        font-size: var(--font-size-2xl) !important;
+    }
+    .page-section-title {
+        font-size: var(--font-size-lg) !important;
+    }
+    /* sidebar 默认收起 */
+    section[data-testid="stSidebar"] {
+        min-width: 260px !important;
+    }
+}
+
+/* ===== 平板 (≤1024px) ===== */
+@media (max-width: 1024px) {
+    .block-container {
+        max-width: 100% !important;
+    }
+}
+
+/* ===== 大屏 (≥1440px) ===== */
+@media (min-width: 1440px) {
+    .block-container {
+        max-width: 1280px !important;
+    }
+}
+"""
+
+
+def inject_custom_css() -> None:
+    """
+    注入页面美化 CSS — Design Token 体系 + Notion 留白 + 响应式适配。
+
+    CSS 分模块管理：Token → Layout → Hero → Section → Buttons → Forms → Components → Utility → Responsive
+    所有颜色/字号/间距引用 :root 变量，改一处即全局生效。
+    """
+    css_parts = [
+        _CSS_TOKENS,
+        _CSS_LAYOUT,
+        _CSS_HERO,
+        _CSS_PAGE_SECTION,
+        _CSS_BUTTONS,
+        _CSS_FORMS,
+        _CSS_COMPONENTS,
+        _CSS_UTILITY,
+        _CSS_RESPONSIVE,
+    ]
+    st.markdown(
+        f"<style>{''.join(css_parts)}</style>",
         unsafe_allow_html=True
     )
 
@@ -481,7 +526,7 @@ def render_step_progress() -> None:
 <div style="
     text-align:center;
     font-size:11px;
-    color:#94A3B8;
+    color:#64748B;
     margin-top:-4px;
     margin-bottom:8px;
 ">

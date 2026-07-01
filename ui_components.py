@@ -433,6 +433,62 @@ _CSS_UTILITY = """
 div[data-testid="stAppViewBlockContainer"] {
     pointer-events: auto !important;
 }
+
+/* ===== 文件上传区美化 ===== */
+[data-testid="stFileUploader"] {
+    border: 2px dashed var(--color-border-default) !important;
+    border-radius: var(--radius-md) !important;
+    padding: var(--space-4) !important;
+    background: var(--color-bg-subtle) !important;
+    transition: all var(--transition-fast);
+}
+
+[data-testid="stFileUploader"]:hover {
+    border-color: var(--color-primary) !important;
+    background: var(--color-primary-bg) !important;
+}
+
+[data-testid="stFileUploaderDropzone"] {
+    border: none !important;
+    background: transparent !important;
+}
+
+[data-testid="stFileUploaderDropzoneInstructions"] {
+    color: var(--color-text-secondary) !important;
+    font-size: var(--font-size-sm) !important;
+}
+"""
+
+# ===== Tab 美化 =====
+_CSS_TABS = """
+/* Tab 按钮文字加大 + 激活态加粗 */
+button[data-baseweb="tab"] {
+    font-size: var(--font-size-base) !important;
+    font-weight: 500 !important;
+    padding: var(--space-2) var(--space-4) !important;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important;
+    transition: all var(--transition-fast);
+}
+
+button[data-baseweb="tab"]:hover {
+    background: var(--color-bg-hover) !important;
+}
+
+button[data-baseweb="tab"][aria-selected="true"] {
+    font-weight: 700 !important;
+    color: var(--color-primary) !important;
+    border-bottom: 3px solid var(--color-primary) !important;
+}
+
+/* Tab 分隔线 */
+div[data-baseweb="tab-list"] {
+    border-bottom: 1px solid var(--color-border-subtle) !important;
+}
+
+/* Tab 内容区上间距 */
+div[data-baseweb="tab-border"] {
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important;
+}
 """
 
 # ===== 响应式 — 3 个断点 =====
@@ -498,6 +554,7 @@ def inject_custom_css() -> None:
         _CSS_FORMS,
         _CSS_COMPONENTS,
         _CSS_UTILITY,
+        _CSS_TABS,
         _CSS_RESPONSIVE,
     ]
     st.markdown(
@@ -866,176 +923,139 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
             st.session_state.get("odps_endpoint", "").strip(),
         ) else "xlsx"
 
-    # 标题由调用方（如 expander label）承担，组件内不再单独显示 subheader
+    # 标题由调用方（如 Tab / expander label）承担，组件内不再单独显示 subheader
 
-    # 模式下拉
-    _odps_available = get_odps_entry(
+    # ODPS 连接检查
+    _odps_entry = get_odps_entry(
         st.session_state.get("odps_ak", "").strip(),
         st.session_state.get("odps_sk", "").strip(),
         st.session_state.get("odps_project", "").strip(),
         st.session_state.get("odps_endpoint", "").strip(),
-    ) is not None
+    )
 
-    if _odps_available:
-        _mode_options = ["odps", "xlsx"]
-        _mode_labels = {"odps": "ODPS 拉取", "xlsx": "xlsx 上传"}
-        _mode = st.radio(
-            f"选择{title}输入方式",
-            options=_mode_options,
-            format_func=lambda x: _mode_labels[x],
-            key=mode_key,
-            horizontal=True
+    if _odps_entry is None:
+        render_empty_state(
+            icon="🔗",
+            title=f"未配置 ODPS 连接",
+            desc=f"请在左侧边栏填写 ODPS 连接配置（Endpoint、AccessKey）后再拉取{title}。",
         )
-    else:
-        _mode = "xlsx"
-        st.caption("未配置 ODPS 连接，仅支持 xlsx 上传。")
-
-    # ===== xlsx 上传模式 =====
-    if _mode == "xlsx":
-        uploaded_files = st.file_uploader(
-            f"上传 {title} xlsx 文件，可多选",
-            type=["xlsx"],
-            accept_multiple_files=True,
-            key=f"{state_prefix}_uploader_{st.session_state[uploader_version_key]}"
-        )
-
-        if uploaded_files:
-            existing_ids = {item["id"] for item in st.session_state[items_key]}
-            for uploaded_file in uploaded_files:
-                file_bytes = uploaded_file.getvalue()
-                file_id = get_uploaded_file_id(uploaded_file.name, file_bytes)
-                if file_id not in existing_ids:
-                    schema_text = read_table_schema_xlsx(file_bytes, uploaded_file.name)
-                    st.session_state[items_key].append({
-                        "id": file_id,
-                        "name": uploaded_file.name,
-                        "source": "xlsx",
-                        "schema_text": schema_text,
-                        "partition": "",
-                        "fetch_status": "ok",
-                        "fetch_error": ""
-                    })
-                    existing_ids.add(file_id)
+        return ""
 
     # ===== ODPS 拉取模式 =====
-    elif _mode == "odps":
-        # 批量添加表名（多行文本框，每行一个表名）
-        _c_add_input, _c_add_btn = st.columns([4, 1])
-        with _c_add_input:
-            _add_tbl_text = st.text_area(
-                "输入表名，每行一个（支持 项目名.表名）",
-                key=f"{state_prefix}_add_input_{st.session_state[uploader_version_key]}",
-                height=80,
-                placeholder="例如：\nods_project.ods_order_detail_di\ndwd_project.dwd_order_d\nads_project.ads_order_summary_df",
+    # 批量添加表名（多行文本框，每行一个表名）
+    _c_add_input, _c_add_btn = st.columns([4, 1])
+    with _c_add_input:
+        _add_tbl_text = st.text_area(
+            "输入表名，每行一个（支持 项目名.表名）",
+            key=f"{state_prefix}_add_input_{st.session_state[uploader_version_key]}",
+            height=80,
+            placeholder="例如：\nods_project.ods_order_detail_di\ndwd_project.dwd_order_d\nads_project.ads_order_summary_df",
+            label_visibility="collapsed"
+        )
+    with _c_add_btn:
+        if st.button("一键添加", key=f"{state_prefix}_add_btn", use_container_width=True):
+            if _add_tbl_text.strip():
+                _existing_names = {x["name"] for x in st.session_state[items_key]}
+                _added_count = 0
+                for _line in _add_tbl_text.strip().splitlines():
+                    _tbl_name = _line.strip()
+                    if _tbl_name and _tbl_name not in _existing_names:
+                        _new_id = f"odps_{_tbl_name}_{len(st.session_state[items_key])}"
+                        st.session_state[items_key].append({
+                            "id": _new_id,
+                            "name": _tbl_name,
+                            "source": "odps",
+                            "schema_text": "",
+                            "partition": "",
+                            "fetch_status": "pending",
+                            "fetch_error": ""
+                        })
+                        _existing_names.add(_tbl_name)
+                        _added_count += 1
+                if _added_count:
+                    st.success(f"已添加 {_added_count} 张表。")
+                    st.session_state[uploader_version_key] += 1
+                st.rerun()
+
+    # 批量填写分区
+    if st.session_state[items_key]:
+        _c_pt_input, _c_pt_btn = st.columns([4, 1])
+        with _c_pt_input:
+            _batch_pt_val = st.text_input(
+                "批量填写分区，应用到所有表",
+                key=f"{state_prefix}_batch_pt_input",
+                placeholder="例如：pt='20250101'  留空=无分区",
                 label_visibility="collapsed"
             )
-        with _c_add_btn:
-            if st.button("一键添加", key=f"{state_prefix}_add_btn", use_container_width=True):
-                if _add_tbl_text.strip():
-                    _existing_names = {x["name"] for x in st.session_state[items_key]}
-                    _added_count = 0
-                    for _line in _add_tbl_text.strip().splitlines():
-                        _tbl_name = _line.strip()
-                        if _tbl_name and _tbl_name not in _existing_names:
-                            _new_id = f"odps_{_tbl_name}_{len(st.session_state[items_key])}"
-                            st.session_state[items_key].append({
-                                "id": _new_id,
-                                "name": _tbl_name,
-                                "source": "odps",
-                                "schema_text": "",
-                                "partition": "",
-                                "fetch_status": "pending",
-                                "fetch_error": ""
-                            })
-                            _existing_names.add(_tbl_name)
-                            _added_count += 1
-                    if _added_count:
-                        st.success(f"已添加 {_added_count} 张表。")
-                        # 清空输入框：用回调方式，在 widget 创建前设
-                        # 不能在 widget 创建后改 session_state，改用 version 换 key
-                        st.session_state[uploader_version_key] += 1
-                    st.rerun()
-
-        # 批量填写分区
-        if st.session_state[items_key]:
-            _c_pt_input, _c_pt_btn = st.columns([4, 1])
-            with _c_pt_input:
-                _batch_pt_val = st.text_input(
-                    "批量填写分区，应用到所有表",
-                    key=f"{state_prefix}_batch_pt_input",
-                    placeholder="例如：pt='20250101'  留空=无分区",
-                    label_visibility="collapsed"
-                )
-            with _c_pt_btn:
-                if st.button("一键填分区", key=f"{state_prefix}_batch_pt_btn", use_container_width=True):
-                    _pt_to_set = _batch_pt_val.strip()
-                    for _item in st.session_state[items_key]:
-                        _item["partition"] = _pt_to_set
-                        # 同步更新每行 text_input 的 session_state key，让 rerun 后显示新值
-                        _pt_widget_key = f"{state_prefix}_pt_{_item['id']}"
-                        st.session_state[_pt_widget_key] = _pt_to_set
-                    st.success(f"已将 {_pt_to_set if _pt_to_set else '无分区'} 应用到所有表。")
-                    st.rerun()
-
-        # 一键拉取按钮
-        _pending_items = [x for x in st.session_state[items_key] if x.get("fetch_status") in ("pending", "error")]
-        if _pending_items:
-            _pending_count = len(_pending_items)
-            _btn_label = f"一键拉取全部未拉取的表（{_pending_count} 张）" if _pending_count > 1 else f"一键拉取 {_pending_items[0]['name']}"
-            if st.button(
-                _btn_label,
-                key=f"{state_prefix}_batch_fetch",
-                type="primary",
-                use_container_width=True
-            ):
-                _oe = get_odps_entry(
-                    st.session_state.get("odps_ak", "").strip(),
-                    st.session_state.get("odps_sk", "").strip(),
-                    st.session_state.get("odps_project", "").strip(),
-                    st.session_state.get("odps_endpoint", "").strip(),
-                )
-                _ok_count = 0
-                _fail_count = 0
-                _progress = st.progress(0.0)
-                for _idx, _item in enumerate(_pending_items):
-                    _progress.progress((_idx) / len(_pending_items))
-                    with st.spinner(f"正在拉取 {_item['name']}（{_idx+1}/{len(_pending_items)}）..."):
-                        try:
-                            _schema = get_table_schema_text(_oe, _item["name"])
-                            for saved_item in st.session_state[items_key]:
-                                if saved_item["id"] == _item["id"]:
-                                    saved_item["schema_text"] = _schema
-                                    saved_item["fetch_status"] = "ok"
-                                    saved_item["fetch_error"] = ""
-                                    break
-                            _ok_count += 1
-                        except Exception as e:
-                            for saved_item in st.session_state[items_key]:
-                                if saved_item["id"] == _item["id"]:
-                                    saved_item["fetch_status"] = "error"
-                                    saved_item["fetch_error"] = str(e)
-                                    break
-                            _fail_count += 1
-                _progress.progress(1.0)
-                if _ok_count and not _fail_count:
-                    st.success(f"全部拉取成功（{_ok_count} 张）。")
-                elif _ok_count and _fail_count:
-                    st.warning(f"成功 {_ok_count} 张，失败 {_fail_count} 张。失败的表可修正后重新拉取。")
-                else:
-                    render_error_with_fold(f"全部拉取失败（{_fail_count} 张）。请检查表名和权限后重新拉取。")
+        with _c_pt_btn:
+            if st.button("一键填分区", key=f"{state_prefix}_batch_pt_btn", use_container_width=True):
+                _pt_to_set = _batch_pt_val.strip()
+                for _item in st.session_state[items_key]:
+                    _item["partition"] = _pt_to_set
+                    _pt_widget_key = f"{state_prefix}_pt_{_item['id']}"
+                    st.session_state[_pt_widget_key] = _pt_to_set
+                st.success(f"已将 {_pt_to_set if _pt_to_set else '无分区'} 应用到所有表。")
                 st.rerun()
-        else:
-            _has_items = bool(st.session_state[items_key])
-            _all_ok = all(x.get("fetch_status") == "ok" for x in st.session_state[items_key]) if _has_items else False
-            if _has_items and _all_ok:
-                st.caption("所有表已拉取成功。")
+
+    # 一键拉取按钮
+    _pending_items = [x for x in st.session_state[items_key] if x.get("fetch_status") in ("pending", "error")]
+    if _pending_items:
+        _pending_count = len(_pending_items)
+        _btn_label = f"一键拉取全部未拉取的表（{_pending_count} 张）" if _pending_count > 1 else f"一键拉取 {_pending_items[0]['name']}"
+        if st.button(
+            _btn_label,
+            key=f"{state_prefix}_batch_fetch",
+            type="primary",
+            use_container_width=True
+        ):
+            _oe = get_odps_entry(
+                st.session_state.get("odps_ak", "").strip(),
+                st.session_state.get("odps_sk", "").strip(),
+                st.session_state.get("odps_project", "").strip(),
+                st.session_state.get("odps_endpoint", "").strip(),
+            )
+            _ok_count = 0
+            _fail_count = 0
+            _progress = st.progress(0.0)
+            for _idx, _item in enumerate(_pending_items):
+                _progress.progress((_idx) / len(_pending_items))
+                with st.spinner(f"正在拉取 {_item['name']}（{_idx+1}/{len(_pending_items)}）..."):
+                    try:
+                        _schema = get_table_schema_text(_oe, _item["name"])
+                        for saved_item in st.session_state[items_key]:
+                            if saved_item["id"] == _item["id"]:
+                                saved_item["schema_text"] = _schema
+                                saved_item["fetch_status"] = "ok"
+                                saved_item["fetch_error"] = ""
+                                break
+                        _ok_count += 1
+                    except Exception as e:
+                        for saved_item in st.session_state[items_key]:
+                            if saved_item["id"] == _item["id"]:
+                                saved_item["fetch_status"] = "error"
+                                saved_item["fetch_error"] = str(e)
+                                break
+                        _fail_count += 1
+            _progress.progress(1.0)
+            if _ok_count and not _fail_count:
+                st.success(f"全部拉取成功（{_ok_count} 张）。")
+            elif _ok_count and _fail_count:
+                st.warning(f"成功 {_ok_count} 张，失败 {_fail_count} 张。失败的表可修正后重新拉取。")
+            else:
+                render_error_with_fold(f"全部拉取失败（{_fail_count} 张）。请检查表名和权限后重新拉取。")
+            st.rerun()
+    else:
+        _has_items = bool(st.session_state[items_key])
+        _all_ok = all(x.get("fetch_status") == "ok" for x in st.session_state[items_key]) if _has_items else False
+        if _has_items and _all_ok:
+            st.caption("✅ 所有表已拉取成功。")
 
     # ===== 统一渲染行列表 =====
     if not st.session_state[items_key]:
         render_empty_state(
             icon="📭",
             title=f"暂无{title}",
-            desc="可通过 ODPS 拉取或上传 xlsx 文件添加表结构。",
+            desc="在上方输入表名，点击「一键添加」后拉取表结构。",
         )
         return ""
 
@@ -1047,20 +1067,17 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
 
         with _c_name:
             _status_tag = ""
-            if item.get("source") == "odps":
-                _status = item.get("fetch_status", "pending")
-                if _status == "ok":
-                    _status_tag = " ✅ 已拉取"
-                elif _status == "error":
-                    _status_tag = " ❌ 拉取失败"
-                elif _status == "pending":
-                    _status_tag = " ⏳ 待拉取"
-            else:
-                _status_tag = " 📄 xlsx"
+            _status = item.get("fetch_status", "pending")
+            if _status == "ok":
+                _status_tag = " ✅ 已拉取"
+            elif _status == "error":
+                _status_tag = " ❌ 拉取失败"
+            elif _status == "pending":
+                _status_tag = " ⏳ 待拉取"
 
             st.markdown(f"**{index}. {item['name']}**{_status_tag}")
 
-            if item.get("source") == "odps" and item.get("fetch_status") == "error":
+            if item.get("fetch_status") == "error":
                 render_error_with_fold(f"拉取失败：{item.get('fetch_error', '未知错误')}")
 
         with _c_pt:

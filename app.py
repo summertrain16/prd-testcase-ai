@@ -678,7 +678,7 @@ elif st.session_state["current_step"] == STEP_PENDING:
 
         with col_b:
             ignore_pending_clicked = st.button(
-                "⏭️ 忽略剩余待确认点，继续",
+                "⏭️ 忽略待确认点，直接生成测试用例",
                 use_container_width=True
             )
 
@@ -780,9 +780,10 @@ elif st.session_state["current_step"] == STEP_PENDING:
                 st.session_state["pending_points_rows"]
             )
 
-            st.success("已标记忽略剩余待确认点，可以继续生成最终版需求提炼表。")
-
-            go_to_step(STEP_FINAL)
+            # 直接跳到第 4 步，初版结果即为终版
+            st.session_state["prd_final_analysis_result"] = st.session_state["prd_current_analysis_result"]
+            st.session_state["test_case_result"] = ""
+            go_to_step(STEP_TEST_CASE)
 
     if st.session_state.get("ignore_remaining_pending_points", False):
         st.warning(
@@ -831,15 +832,6 @@ elif st.session_state["current_step"] == STEP_FINAL:
         "生成最终版需求提炼表",
         type="primary"
     )
-
-    # #2：忽略待确认点时，提供"直接生成测试用例"快捷按钮，减少第 3 步→第 4 步的两次点击
-    if ignored_pending:
-        _skip_to_test = st.button(
-            "🚀 跳过终版，直接生成测试用例",
-            type="primary"
-        )
-    else:
-        _skip_to_test = False
 
     if _gen_final_clicked:
         with st.spinner("正在生成最终版..."):
@@ -904,12 +896,6 @@ elif st.session_state["current_step"] == STEP_FINAL:
             st.session_state["test_case_result"] = ""
 
         st.success("最终版需求提炼表已生成。")
-
-    # #2：忽略待确认点时跳过终版直接到第 4 步
-    if _skip_to_test:
-        st.session_state["prd_final_analysis_result"] = st.session_state["prd_current_analysis_result"]
-        st.session_state["test_case_result"] = ""
-        go_to_step(STEP_TEST_CASE)
 
     if st.session_state["prd_final_analysis_result"]:
         st.subheader("最终版需求提炼表")

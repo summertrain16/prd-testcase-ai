@@ -1108,9 +1108,53 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                         expanded=True
                     )
 
+                # ===== 结果总览 + 过滤器 =====
+                _run_results = st.session_state.get("sql_run_results", {})
+                _total_sql = len(_sql_blocks)
+                _executed = len(_run_results)
+                _pass_cnt = sum(1 for v in _run_results.values() if not v["err"] and v.get("df") is not None and v["df"].empty)
+                _diff_cnt = sum(1 for v in _run_results.values() if not v["err"] and v.get("df") is not None and not v["df"].empty)
+                _fail_cnt = sum(1 for v in _run_results.values() if v["err"])
+
+                if _executed > 0:
+                    st.markdown(
+                        f"**结果总览**：共 {_total_sql} 段 SQL ｜ 已执行 {_executed} ｜ "
+                        f"✅ 通过 {_pass_cnt} ｜ ⚠️ 有差异 {_diff_cnt} ｜ ❌ 失败 {_fail_cnt}"
+                    )
+                    _filter = st.radio(
+                        "筛选展示",
+                        ["全部", "仅通过", "仅有差异", "仅失败"],
+                        horizontal=True,
+                        key="sql_result_filter"
+                    )
+                else:
+                    _filter = "全部"
+
                 # 逐段展示 + 执行
                 for _i, _sql_block in enumerate(_sql_blocks, 1):
-                    with st.expander(f"SQL-{_i:03d}", expanded=False):
+                    # 计算该段状态
+                    _cached_f = _run_results.get(_i)
+                    if _cached_f:
+                        if _cached_f["err"]:
+                            _status = "fail"
+                        elif _cached_f["df"].empty:
+                            _status = "pass"
+                        else:
+                            _status = "diff"
+                    else:
+                        _status = "pending"
+
+                    # 过滤判断
+                    if _filter == "仅通过" and _status != "pass":
+                        continue
+                    if _filter == "仅有差异" and _status != "diff":
+                        continue
+                    if _filter == "仅失败" and _status != "fail":
+                        continue
+
+                    _status_icon = {"pass": "✅", "diff": "⚠️", "fail": "❌", "pending": "⏳"}.get(_status, "")
+
+                    with st.expander(f"{_status_icon} SQL-{_i:03d}", expanded=False):
                         # 可编辑 SQL 文本框
                         _edit_key = f"sql_edit_{_i}"
                         if _edit_key not in st.session_state:

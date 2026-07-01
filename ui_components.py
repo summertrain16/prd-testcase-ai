@@ -215,16 +215,44 @@ _CSS_PAGE_SECTION = """
     word-wrap: break-word;
     overflow-wrap: break-word;
 }
+
+/* 空状态组件 — 统一图标+标题+描述+引导 */
+.empty-state {
+    text-align: center;
+    padding: var(--space-12) var(--space-6);
+    color: var(--color-text-secondary);
+}
+.empty-state-icon {
+    font-size: 48px;
+    margin-bottom: var(--space-4);
+    line-height: 1;
+}
+.empty-state-title {
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-2);
+}
+.empty-state-desc {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    line-height: 1.6;
+}
+.empty-state-action {
+    font-size: var(--font-size-sm);
+    color: var(--color-primary);
+    margin-top: var(--space-4);
+}
 """
 
 # ===== 按钮样式 =====
 # 原 13 个选择器 + 30 处 !important → 精简为 4 条规则
 _CSS_BUTTONS = """
-/* 默认按钮 — 中性灰 */
+/* 默认按钮 — 中性灰，44px 触摸目标（WCAG AA） */
 .stButton > button,
 .stDownloadButton > button {
     border-radius: var(--radius-sm) !important;
-    min-height: 36px;
+    min-height: 44px;
     font-weight: 500 !important;
     font-size: var(--font-size-sm) !important;
     transition: all var(--transition-fast);
@@ -263,11 +291,9 @@ _CSS_BUTTONS = """
     fill: var(--color-on-primary) !important;
 }
 
-/* 顶部步骤导航按钮 — 更大触摸目标 */
+/* 顶部步骤导航按钮 — 更大圆角 + 加粗 */
 div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {
-    min-height: 44px;
     border-radius: var(--radius-md) !important;
-    font-size: var(--font-size-sm) !important;
     font-weight: 600 !important;
 }
 
@@ -510,7 +536,7 @@ def render_step_progress() -> None:
         current_index = 0
 
     progress_value = (current_index + 1) / len(STEP_OPTIONS)
-    st.progress(progress_value)
+    st.progress(progress_value, help=f"当前进度：{current_index + 1}/{len(STEP_OPTIONS)}")
 
     cols = st.columns(len(STEP_OPTIONS))
 
@@ -539,7 +565,7 @@ def render_step_progress() -> None:
 
             st.markdown(
                 f"""
-<div class="step-nav-status">
+<div class="step-nav-status" role="status" aria-label="步骤 {index + 1} 状态：{status}">
     {status_icon} {status}
 </div>
                 """,
@@ -560,13 +586,51 @@ def render_page_header(title: str, desc: str, icon: str = "") -> None:
     title_html = f"{icon} {title}" if icon else title
     st.markdown(
         f"""
-<div class="page-section-card">
-    <div class="page-section-title">{title_html}</div>
-    <div class="page-section-desc">{desc}</div>
+<div class="page-section-card" role="region" aria-label="{title}">
+    <h2 class="page-section-title">{title_html}</h2>
+    <p class="page-section-desc">{desc}</p>
 </div>
         """,
         unsafe_allow_html=True
     )
+
+
+def render_empty_state(icon: str, title: str, desc: str = "", action_label: str = "") -> None:
+    """
+    统一空状态组件：图标 + 标题 + 描述 + 引导。
+
+    用于无表结构、无测试用例、无数据等场景，替代散落的 st.info()。
+
+    参数：
+        icon: emoji 图标，例如 "📭"
+        title: 空状态标题，例如 "暂无表结构"
+        desc: 描述文字，可选
+        action_label: 引导操作文字，可选
+    """
+    parts = [f'<div class="empty-state">']
+    parts.append(f'  <div class="empty-state-icon">{icon}</div>')
+    parts.append(f'  <div class="empty-state-title">{title}</div>')
+    if desc:
+        parts.append(f'  <div class="empty-state-desc">{desc}</div>')
+    if action_label:
+        parts.append(f'  <div class="empty-state-action">{action_label}</div>')
+    parts.append('</div>')
+    st.markdown("\n".join(parts), unsafe_allow_html=True)
+
+
+def render_error_with_fold(message: str, threshold: int = 200) -> None:
+    """
+    错误信息折叠处理：超过 threshold 字符的错误消息用 expander 折叠。
+
+    短消息直接 st.error() 展示；长消息折叠标题 + expander 内完整内容。
+    """
+    if len(message) <= threshold:
+        st.error(message)
+    else:
+        _short = message[:threshold].rsplit(" ", 0)[0]
+        st.error(f"{_short}……（完整错误信息见下方折叠区）")
+        with st.expander("查看完整错误信息", expanded=False):
+            st.code(message, language="text")
 
 
 def build_vscode_runnable_sql_download_content(result_text: str) -> str:
@@ -957,7 +1021,7 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
                 elif _ok_count and _fail_count:
                     st.warning(f"成功 {_ok_count} 张，失败 {_fail_count} 张。失败的表可修正后重新拉取。")
                 else:
-                    st.error(f"全部拉取失败（{_fail_count} 张）。请检查表名和权限后重新拉取。")
+                    render_error_with_fold(f"全部拉取失败（{_fail_count} 张）。请检查表名和权限后重新拉取。")
                 st.rerun()
         else:
             _has_items = bool(st.session_state[items_key])
@@ -967,7 +1031,11 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
 
     # ===== 统一渲染行列表 =====
     if not st.session_state[items_key]:
-        st.info(f"暂无{title}。")
+        render_empty_state(
+            icon="📭",
+            title=f"暂无{title}",
+            desc="可通过 ODPS 拉取或上传 xlsx 文件添加表结构。",
+        )
         return ""
 
     st.write(f"共 {len(st.session_state[items_key])} 张表：")
@@ -992,7 +1060,7 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
             st.markdown(f"**{index}. {item['name']}**{_status_tag}")
 
             if item.get("source") == "odps" and item.get("fetch_status") == "error":
-                st.error(f"拉取失败：{item.get('fetch_error', '未知错误')}")
+                render_error_with_fold(f"拉取失败：{item.get('fetch_error', '未知错误')}")
 
         with _c_pt:
             _pt_widget_key = f"{state_prefix}_pt_{item['id']}"
@@ -1048,7 +1116,7 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
                                 else:
                                     st.dataframe(_df, use_container_width=True, height=250)
                         except Exception as e:
-                            st.error(f"预览失败：{e}")
+                            render_error_with_fold(f"预览失败：{e}")
 
             # 显示表结构内容（折叠）
             _show = st.checkbox(

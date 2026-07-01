@@ -1062,7 +1062,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                 # 展示汇总分析结果 + 导出
                 _batch_analysis_cached = st.session_state.get("batch_diff_analysis", "")
                 if _batch_analysis_cached:
-                    st.markdown("---")
+                    st.divider()
                     _ba_c1, _ba_c2 = st.columns([4, 1])
                     with _ba_c1:
                         st.markdown("#### 🤖 汇总差异分析报告")
@@ -1176,7 +1176,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                                             mime="text/markdown",
                                             key=f"download_analysis_{_i}"
                                         )
-                                    st.markdown("---")
+                                    st.divider()
                                     st.markdown("#### 🤖 AI 差异分析报告")
                                     render_markdown_in_scroll_box(
                                         title="差异分析",

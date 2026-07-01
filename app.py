@@ -617,14 +617,17 @@ elif st.session_state["current_step"] == STEP_PENDING:
     )
 
     if not st.session_state["pending_points_rows"]:
-        st.success("当前没有阻塞测试设计或 SQL 校验的待确认点，可以继续生成最终版需求提炼表。")
+        st.success("当前没有待确认点，初版分析即为最终版，可直接生成测试用例。")
         st.session_state["prd_pending_answers"] = "无待确认点。"
 
         if st.button(
-            "进入第 3 步：生成最终版",
+            "🚀 直接生成测试用例",
             type="primary"
         ):
-                go_to_step(STEP_FINAL)
+            # 无待确认点且无收敛历史 → 初版即终版，跳过第 3 步
+            st.session_state["prd_final_analysis_result"] = st.session_state["prd_current_analysis_result"]
+            st.session_state["test_case_result"] = ""
+            go_to_step(STEP_TEST_CASE)
 
     else:
         render_pending_points_data_editor()

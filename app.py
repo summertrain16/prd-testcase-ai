@@ -14,6 +14,7 @@ PRD 测试用例生成工具 — 主入口文件
 
 import os
 import io
+import hashlib
 from datetime import datetime
 
 import pandas as pd
@@ -69,6 +70,18 @@ def _ts_filename(base: str, ext: str) -> str:
     """生成带时间戳的文件名，避免多次下载覆盖。"""
     _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{base}_{_ts}.{ext}"
+
+
+def _materials_hash(materials: dict) -> str:
+    """计算输入材料的 hash，用于判断是否需要重新调用 LLM。"""
+    _raw = "|".join([
+        materials.get("prd_text", ""),
+        materials.get("meeting_notes", ""),
+        materials.get("result_table_schema", ""),
+        materials.get("source_table_schema", ""),
+        materials.get("dev_code", ""),
+    ])
+    return hashlib.md5(_raw.encode("utf-8")).hexdigest()
 
 
 # =========================
@@ -280,6 +293,9 @@ odps_sk = "你的AccessKey Secret"
 """)
 
     st.divider()
+    # #5：刷新提示
+    st.caption("⚠️ 刷新页面会丢失所有数据（PRD、表结构、分析结果等），请谨慎操作。")
+
     if st.button("清空全部结果", use_container_width=True):
         st.session_state["prd_draft_analysis_result"] = ""
         st.session_state["prd_pending_answers"] = ""
@@ -468,8 +484,28 @@ if st.session_state["current_step"] == STEP_INPUT:
         if not materials["prd_text"].strip():
             st.warning("请先上传或粘贴 PRD 内容。")
         else:
-            with st.spinner("正在分析 PRD..."):
-                user_content = f"""
+            # #6：缓存判断 — 输入材料没变就不重复调 LLM
+            _current_hash = _materials_hash(materials)
+            _cached_hash = st.session_state.get("_draft_materials_hash", "")
+            _cached_result = st.session_state.get("prd_draft_analysis_result", "")
+
+            if _current_hash == _cached_hash and _cached_result:
+                st.info("输入材料未变化，使用上次的分析结果。")
+                st.session_state["prd_current_analysis_result"] = _cached_result
+                st.session_state["pending_points_rows"] = parse_pending_points_from_markdown(_cached_result)
+                st.session_state["pending_points_editor_version"] += 1
+                st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
+                    st.session_state["pending_points_rows"]
+                )
+                st.session_state["pending_analysis_round"] = 1
+                st.session_state["pending_confirm_history"] = ""
+                st.session_state["ignore_remaining_pending_points"] = False
+                st.session_state["ignored_pending_points_text"] = ""
+                st.session_state["prd_final_analysis_result"] = ""
+                st.session_state["test_case_result"] = ""
+            else:
+                with st.spinner("正在分析 PRD..."):
+                    user_content = f"""
 以下是 PRD 原文：
 
 {materials["prd_text"]}
@@ -490,49 +526,39 @@ if st.session_state["current_step"] == STEP_INPUT:
 
 {materials["dev_code"] if materials["dev_code"].strip() else "未提供"}
 
-请基于以上全部信息进行第一轮分析。
-
-请特别注意：
-1. 测试用例需要精简，但不能把所有字段的一致性比对强行混在一个用例里。
-2. 最重要的测试是"主键唯一性校验"和"结果表与源表加工结果一致性比对"。
-3. 字段一致性比对需要按来源表、加工逻辑、过滤条件、关联条件、分区条件和复杂度合理拆分。
-4. 简单同源、同关联、同过滤、同分区、直接映射的字段，可以合并到同一条一致性比对用例。
-5. 复杂字段、金额字段、枚举映射字段、case when 字段、聚合字段、去重字段、不同源表字段，应单独生成一致性比对用例和 SQL。
-6. 每条一致性比对 SQL 的 final select 必须同时展示源表加工后的字段值和结果表字段值。
-7. 如果存在差异，SQL 结果应能直观看到 expected/source 值、actual/result 值、diff_flag 和 diff_type。
-8. 不要只输出差异数量，要输出差异明细。
-9. 复杂字段的 expected CTE 中要保留必要中间字段，方便排查差异原因。
+请基于以上全部信息进行第一轮需求提炼分析。
 """
 
-                draft_result = call_llm(
-                    PRD_DRAFT_ANALYSIS_PROMPT,
-                    user_content
-                )
-                if is_llm_error(draft_result):
-                    render_error_with_fold(draft_result)
-                    st.stop()
+                    draft_result = call_llm(
+                        PRD_DRAFT_ANALYSIS_PROMPT,
+                        user_content
+                    )
+                    if is_llm_error(draft_result):
+                        render_error_with_fold(draft_result)
+                        st.stop()
 
-                st.session_state["prd_draft_analysis_result"] = draft_result
-                st.session_state["prd_current_analysis_result"] = draft_result
+                    st.session_state["prd_draft_analysis_result"] = draft_result
+                    st.session_state["prd_current_analysis_result"] = draft_result
+                    st.session_state["_draft_materials_hash"] = _current_hash
 
-                st.session_state["pending_points_rows"] = parse_pending_points_from_markdown(
-                    draft_result
-                )
+                    st.session_state["pending_points_rows"] = parse_pending_points_from_markdown(
+                        draft_result
+                    )
 
-                st.session_state["pending_points_editor_version"] += 1
+                    st.session_state["pending_points_editor_version"] += 1
 
-                st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
-                    st.session_state["pending_points_rows"]
-                )
+                    st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
+                        st.session_state["pending_points_rows"]
+                    )
 
-                st.session_state["pending_analysis_round"] = 1
-                st.session_state["pending_confirm_history"] = ""
+                    st.session_state["pending_analysis_round"] = 1
+                    st.session_state["pending_confirm_history"] = ""
 
-                st.session_state["ignore_remaining_pending_points"] = False
-                st.session_state["ignored_pending_points_text"] = ""
+                    st.session_state["ignore_remaining_pending_points"] = False
+                    st.session_state["ignored_pending_points_text"] = ""
 
-                st.session_state["prd_final_analysis_result"] = ""
-                st.session_state["test_case_result"] = ""
+                    st.session_state["prd_final_analysis_result"] = ""
+                    st.session_state["test_case_result"] = ""
 
             go_to_step(STEP_PENDING)
 
@@ -806,6 +832,15 @@ elif st.session_state["current_step"] == STEP_FINAL:
         type="primary"
     )
 
+    # #2：忽略待确认点时，提供"直接生成测试用例"快捷按钮，减少第 3 步→第 4 步的两次点击
+    if ignored_pending:
+        _skip_to_test = st.button(
+            "🚀 跳过终版，直接生成测试用例",
+            type="primary"
+        )
+    else:
+        _skip_to_test = False
+
     if _gen_final_clicked:
         with st.spinner("正在生成最终版..."):
             sync_pending_points_from_widgets()
@@ -869,6 +904,12 @@ elif st.session_state["current_step"] == STEP_FINAL:
             st.session_state["test_case_result"] = ""
 
         st.success("最终版需求提炼表已生成。")
+
+    # #2：忽略待确认点时跳过终版直接到第 4 步
+    if _skip_to_test:
+        st.session_state["prd_final_analysis_result"] = st.session_state["prd_current_analysis_result"]
+        st.session_state["test_case_result"] = ""
+        go_to_step(STEP_TEST_CASE)
 
     if st.session_state["prd_final_analysis_result"]:
         st.subheader("最终版需求提炼表")
@@ -989,6 +1030,15 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
 4. 不允许根据初版分析中的不确定内容自行脑补。
 5. 如果源表或结果表分区未提供，请在 SQL 中使用【分区字段】或 pt='YYYYMMDD' 占位，并在待确认问题中说明。
 6. 如果某个上传表结构的分区信息为『无分区』，不要强行给该表添加分区条件。
+7. 测试用例需要精简，但不能把所有字段的一致性比对强行混在一个用例里。
+8. 最重要的测试是"主键唯一性校验"和"结果表与源表加工结果一致性比对"。
+9. 字段一致性比对需要按来源表、加工逻辑、过滤条件、关联条件、分区条件和复杂度合理拆分。
+10. 简单同源、同关联、同过滤、同分区、直接映射的字段，可以合并到同一条一致性比对用例。
+11. 复杂字段、金额字段、枚举映射字段、case when 字段、聚合字段、去重字段、不同源表字段，应单独生成一致性比对用例和 SQL。
+12. 每条一致性比对 SQL 的 final select 必须同时展示源表加工后的字段值和结果表字段值。
+13. 如果存在差异，SQL 结果应能直观看到 expected/source 值、actual/result 值、diff_flag 和 diff_type。
+14. 不要只输出差异数量，要输出差异明细。
+15. 复杂字段的 expected CTE 中要保留必要中间字段，方便排查差异原因。
 """
 
             test_result = call_llm(

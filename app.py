@@ -322,19 +322,27 @@ if st.session_state["current_step"] == STEP_INPUT:
     )
 
     # =========================
-    # PRD 输入区 — 两列并排，默认折叠
+    # Tab 布局：PRD / 补充说明 / 表结构 / 开发代码
     # =========================
 
-    st.subheader("一、输入 PRD（上传或粘贴，二选一即可）")
+    _tab_prd, _tab_notes, _tab_schema, _tab_code = st.tabs([
+        "📄 PRD",
+        "📝 补充说明",
+        "🗄️ 表结构",
+        "💻 开发代码",
+    ])
 
-    _col_prd_left, _col_prd_right = st.columns(2)
+    # ----- Tab 1: PRD -----
+    with _tab_prd:
+        _col_prd_left, _col_prd_right = st.columns(2)
 
-    with _col_prd_left:
-        with st.expander("📎 上传 PRD 文件", expanded=False):
+        with _col_prd_left:
+            st.markdown("**📎 上传 PRD 文件**")
             prd_file = st.file_uploader(
                 "支持 txt、md、pdf、docx、xlsx、sql、csv、json、py",
                 type=["txt", "md", "pdf", "docx", "xlsx", "sql", "csv", "json", "py"],
-                key=f"prd_file_{st.session_state['prd_file_uploader_version']}"
+                key=f"prd_file_{st.session_state['prd_file_uploader_version']}",
+                label_visibility="collapsed"
             )
 
             if prd_file is not None:
@@ -351,8 +359,8 @@ if st.session_state["current_step"] == STEP_INPUT:
             else:
                 st.caption("未上传文件，可在右侧粘贴内容。")
 
-    with _col_prd_right:
-        with st.expander("✏️ 粘贴 PRD 内容", expanded=False):
+        with _col_prd_right:
+            st.markdown("**✏️ 粘贴 PRD 内容**")
             prd_manual_text = st.text_area(
                 "粘贴 PRD 内容",
                 key="prd_manual_text",
@@ -360,6 +368,47 @@ if st.session_state["current_step"] == STEP_INPUT:
                 placeholder="请在这里粘贴 PRD 文本。如果已经上传文件，也可以在这里补充说明。",
                 label_visibility="collapsed"
             )
+
+    # ----- Tab 2: 补充说明 -----
+    with _tab_notes:
+        meeting_notes = st.text_area(
+            "会议纪要",
+            key="meeting_notes",
+            height=220,
+            placeholder="例如：会议中确认了统计口径、过滤条件、字段含义等。",
+        )
+
+    # ----- Tab 3: 表结构 -----
+    with _tab_schema:
+        st.markdown("**结果表表结构**")
+        result_table_schema = render_table_schema_uploader(
+            title="结果表表结构",
+            state_prefix="result_schema"
+        )
+        st.session_state["result_table_schema"] = result_table_schema
+
+        st.divider()
+
+        st.markdown("**源表表结构**")
+        source_table_schema = render_table_schema_uploader(
+            title="源表表结构",
+            state_prefix="source_schema"
+        )
+        st.session_state["source_table_schema"] = source_table_schema
+
+    # ----- Tab 4: 开发代码 -----
+    with _tab_code:
+        dev_code = st.text_area(
+            "参考开发代码",
+            key="dev_code",
+            height=300,
+            placeholder="可以粘贴 SQL、PySpark、DataWorks 调度代码等。",
+            label_visibility="collapsed"
+        )
+
+    # =========================
+    # 合并 PRD 文本
+    # =========================
 
     prd_text = ""
 
@@ -371,64 +420,13 @@ if st.session_state["current_step"] == STEP_INPUT:
 
     st.session_state["prd_text"] = prd_text
 
-    if prd_text.strip():
-        with st.expander("📄 查看当前 PRD 原文", expanded=False):
-            st.text_area(
-                "当前合并后的 PRD 内容",
-                value=prd_text,
-                height=300,
-                disabled=True
-            )
-
     # =========================
-    # 补充信息区 — 两列并排，默认折叠
+    # 底部统一主按钮 + 材料摘要徽章
     # =========================
 
-    st.subheader("二、补充信息（可选，有助于提升分析准确度）")
+    st.divider()
 
-    _col_sup_left, _col_sup_right = st.columns(2)
-
-    with _col_sup_left:
-        with st.expander("📝 会议纪要", expanded=False):
-            meeting_notes = st.text_area(
-                "会议纪要",
-                key="meeting_notes",
-                height=140,
-                placeholder="例如：会议中确认了统计口径、过滤条件、字段含义等。",
-                label_visibility="collapsed"
-            )
-
-        with st.expander("💻 参考开发代码", expanded=False):
-            dev_code = st.text_area(
-                "参考开发代码",
-                key="dev_code",
-                height=220,
-                placeholder="可以粘贴 SQL、PySpark、DataWorks 调度代码等。",
-                label_visibility="collapsed"
-            )
-
-    with _col_sup_right:
-        with st.expander("🗄️ 结果表表结构", expanded=False):
-            result_table_schema = render_table_schema_uploader(
-                title="结果表表结构",
-                state_prefix="result_schema"
-            )
-            st.session_state["result_table_schema"] = result_table_schema
-
-        with st.expander("📊 源表表结构", expanded=False):
-            source_table_schema = render_table_schema_uploader(
-                title="源表表结构",
-                state_prefix="source_schema"
-            )
-            st.session_state["source_table_schema"] = source_table_schema
-
-    # =========================
-    # 第一步：生成初版需求提炼和待确认点
-    # =========================
-
-    st.subheader("三、生成初版需求提炼和待确认点")
-
-    # 材料摘要徽章：展示哪些材料已填写
+    # 材料摘要徽章
     _badge_parts = []
     if prd_text.strip():
         _badge_parts.append("PRD ✓")
@@ -452,8 +450,9 @@ if st.session_state["current_step"] == STEP_INPUT:
         st.info("尚未填写任何材料，请至少上传或粘贴 PRD 内容。")
 
     _generate_draft_clicked = st.button(
-        "🚀 生成初版需求提炼和待确认点",
-        type="primary"
+        "🚀 开始分析 PRD",
+        type="primary",
+        use_container_width=True
     )
 
     if _generate_draft_clicked:

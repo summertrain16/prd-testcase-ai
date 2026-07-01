@@ -195,13 +195,13 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
     if not sql_clean:
         return pd.DataFrame(), "SQL 内容为空"
 
-    # 从 SQL 中提取项目名（如果表名带 项目名.表名 格式）
-    # 用于在 odps_entry project 为 None 时临时指定 project
+    # 确定用哪个 project 提交 SQL 任务
+    # 优先级：用户在侧边栏配置的 project > 从 SQL 提取的项目名
+    # 原因：execute_sql 提交任务需要对项目有 CreateInstance 权限，
+    # 用户配置的 project 通常是有执行权限的项目，
+    # 而 SQL 中 FROM 的第一个项目可能只是源表所在项目，不一定有执行权限
     import re as _re
-    _sql_project = None
-    _proj_match = _re.search(r'\bFROM\s+(\w+)\.(\w+)', sql_clean, _re.IGNORECASE)
-    if _proj_match:
-        _sql_project = _proj_match.group(1)
+    _sql_projects = set(_re.findall(r'\b(?:FROM|JOIN)\s+(\w+)\.\w+', sql_clean, _re.IGNORECASE))
 
     _exec_odps = odps_entry
     _user_project = getattr(odps_entry, '_user_project', None)
@@ -209,19 +209,20 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
     _user_sk = getattr(odps_entry, '_user_sk', None)
     _user_endpoint = getattr(odps_entry, '_user_endpoint', None)
 
-    if not _user_project and _sql_project:
-        # project 为空但 SQL 中有项目前缀，用提取到的 project 重建连接
+    # 只有用户没配 project 时，才从 SQL 提取（兜底）
+    if not _user_project and _sql_projects:
+        _sql_project = next(iter(_sql_projects))  # 取第一个
         _exec_odps = ODPS(
             _user_ak,
             _user_sk,
             project=_sql_project,
             endpoint=_user_endpoint
         )
-        # 同样存凭证
         _exec_odps._user_ak = _user_ak
         _exec_odps._user_sk = _user_sk
         _exec_odps._user_project = _sql_project
         _exec_odps._user_endpoint = _user_endpoint
+    # 用户配了 project 时，直接用，不管 SQL 里查的是哪个项目
 
     try:
         instance = _exec_odps.execute_sql(sql_clean)
@@ -232,11 +233,13 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
             instance = _exec_odps.run_sql(sql_clean)
             instance.wait_for_success()
         except Exception as e2:
-            _proj_info = f"配置的 project: {_user_project or '(空)'}, SQL 提取的 project: {_sql_project or '(无)'}"
+            _sql_proj_display = ', '.join(_sql_projects) if _sql_projects else '(无)'
+            _proj_info = f"配置的 project: {_user_project or '(空)'}, SQL 涉及的项目: {_sql_proj_display}"
             return pd.DataFrame(), (
                 f"SQL 执行失败（同步）：{_err_msg}\n"
                 f"SQL 执行失败（异步）：{e2}\n"
                 f"{_proj_info}\n"
+                f"提示：如果报权限错（NoPermission / CreateInstance），请在侧边栏 ODPS 配置的 Project 栏填写你有执行权限的项目名"
                 f"--- 完整 SQL 文本 ---\n{sql_clean}"
             )
 

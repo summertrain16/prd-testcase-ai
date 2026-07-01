@@ -377,21 +377,21 @@ if st.session_state["current_step"] == STEP_INPUT:
     # ----- Tab 2: 表结构 -----
     with _tab_schema:
         st.caption("从 ODPS 在线拉取结果表和源表结构，填写分区条件后即可用于分析。")
-        _col_schema_left, _col_schema_right = st.columns(2)
+        st.markdown("### 结果表表结构")
+        result_table_schema = render_table_schema_uploader(
+            title="结果表表结构",
+            state_prefix="result_schema"
+        )
+        st.session_state["result_table_schema"] = result_table_schema
 
-        with _col_schema_left:
-            result_table_schema = render_table_schema_uploader(
-                title="结果表表结构",
-                state_prefix="result_schema"
-            )
-            st.session_state["result_table_schema"] = result_table_schema
+        st.divider()
 
-        with _col_schema_right:
-            source_table_schema = render_table_schema_uploader(
-                title="源表表结构",
-                state_prefix="source_schema"
-            )
-            st.session_state["source_table_schema"] = source_table_schema
+        st.markdown("### 源表表结构")
+        source_table_schema = render_table_schema_uploader(
+            title="源表表结构",
+            state_prefix="source_schema"
+        )
+        st.session_state["source_table_schema"] = source_table_schema
 
     # ----- Tab 3: 补充说明 -----
     with _tab_notes:

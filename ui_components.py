@@ -17,6 +17,7 @@ UI 组件与页面辅助方法。
 """
 
 import re
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -744,7 +745,7 @@ def render_test_case_result_with_download(result_text: str) -> None:
     st.download_button(
         label="下载 SQL 脚本",
         data=sql_download_content,
-        file_name="data_test_validation.sql",
+        file_name=f"data_test_validation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
         mime="text/plain",
         use_container_width=True
     )

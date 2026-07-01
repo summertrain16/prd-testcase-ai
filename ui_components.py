@@ -92,6 +92,7 @@ _CSS_TOKENS = """
     --color-bg-hover:       var(--slate-50);
     --color-bg-subtle:      var(--neutral-50);
     --color-bg-surface:     #FFFFFF;
+    --color-on-primary:     #FFFFFF;  /* primary 按钮上的文字色 */
     --color-primary:        var(--blue-600);
     --color-primary-hover:  var(--blue-700);
     --color-primary-bg:     var(--blue-50);
@@ -199,6 +200,21 @@ _CSS_PAGE_SECTION = """
     color: var(--color-text-secondary);
     line-height: 1.5;
 }
+
+/* 步骤导航状态文字 — 替代原内联样式 */
+.step-nav-status {
+    text-align: center;
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    margin-top: calc(var(--space-1) * -1);
+    margin-bottom: var(--space-2);
+}
+
+/* Markdown 滚动容器内容 — 替代原内联样式 */
+.markdown-scroll-content {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
 """
 
 # ===== 按钮样式 =====
@@ -228,7 +244,7 @@ _CSS_BUTTONS = """
 .stButton button[kind="primary"],
 .stDownloadButton button[kind="primary"] {
     background: var(--color-primary) !important;
-    color: #fff !important;
+    color: var(--color-on-primary) !important;
     border: 1px solid var(--color-primary) !important;
     font-weight: 500 !important;
 }
@@ -237,14 +253,14 @@ _CSS_BUTTONS = """
 .stDownloadButton button[kind="primary"]:hover {
     background: var(--color-primary-hover) !important;
     border-color: var(--color-primary-hover) !important;
-    color: #fff !important;
+    color: var(--color-on-primary) !important;
 }
 
 /* Primary 按钮内部文字/图标保持白色 */
 .stButton button[kind="primary"] *,
 .stDownloadButton button[kind="primary"] * {
-    color: #fff !important;
-    fill: #fff !important;
+    color: var(--color-on-primary) !important;
+    fill: var(--color-on-primary) !important;
 }
 
 /* 顶部步骤导航按钮 — 更大触摸目标 */
@@ -477,7 +493,7 @@ def render_markdown_in_scroll_box(
 
     with st.expander(title, expanded=expanded):
         with st.container(height=height, border=True):
-            st.markdown(f'<div style="word-wrap: break-word; overflow-wrap: break-word;">', unsafe_allow_html=True)
+            st.markdown('<div class="markdown-scroll-content">', unsafe_allow_html=True)
             st.markdown(markdown_text)
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -523,13 +539,7 @@ def render_step_progress() -> None:
 
             st.markdown(
                 f"""
-<div style="
-    text-align:center;
-    font-size:11px;
-    color:#64748B;
-    margin-top:-4px;
-    margin-bottom:8px;
-">
+<div class="step-nav-status">
     {status_icon} {status}
 </div>
                 """,

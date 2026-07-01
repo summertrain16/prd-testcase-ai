@@ -47,6 +47,8 @@ from ui_components import (
     render_pending_points_data_editor,
     sync_pending_points_from_widgets,
     render_table_schema_uploader,
+    render_empty_state,
+    render_error_with_fold,
     go_to_step,
     get_materials_from_state,
 )
@@ -77,11 +79,11 @@ inject_custom_css()
 
 st.markdown(
     """
-<div class="app-hero">
-    <div class="app-hero-title">DataTest 自动化平台</div>
-    <div class="app-hero-desc">
+<div class="app-hero" role="banner">
+    <h1 class="app-hero-title">DataTest 自动化平台</h1>
+    <p class="app-hero-desc">
         智能解析 PRD 需求，自动生成数据测试用例与 SQL 校验脚本，驱动数据质量保障全流程。
-    </div>
+    </p>
 </div>
     """,
     unsafe_allow_html=True
@@ -375,45 +377,39 @@ if st.session_state["current_step"] == STEP_INPUT:
             )
 
     # =========================
-    # 补充信息区
+    # 补充信息区 — 独立 expander，降低嵌套深度
     # =========================
 
     st.header("二、补充信息，可选")
 
-    with st.expander("填写会议纪要、表结构、分区、开发代码等补充信息", expanded=False):
+    with st.expander("会议纪要，可选", expanded=False):
         meeting_notes = st.text_area(
-            "会议纪要，可选",
+            "会议纪要",
             key="meeting_notes",
             height=140,
-            placeholder="例如：会议中确认了统计口径、过滤条件、字段含义等。"
+            placeholder="例如：会议中确认了统计口径、过滤条件、字段含义等。",
+            label_visibility="collapsed"
         )
 
+    result_table_schema = render_table_schema_uploader(
+        title="结果表表结构",
+        state_prefix="result_schema"
+    )
+    st.session_state["result_table_schema"] = result_table_schema
 
-        st.divider()
+    source_table_schema = render_table_schema_uploader(
+        title="源表表结构",
+        state_prefix="source_schema"
+    )
+    st.session_state["source_table_schema"] = source_table_schema
 
-        result_table_schema = render_table_schema_uploader(
-            title="结果表表结构",
-            state_prefix="result_schema"
-        )
-
-        st.session_state["result_table_schema"] = result_table_schema
-
-        st.divider()
-
-        source_table_schema = render_table_schema_uploader(
-            title="源表表结构",
-            state_prefix="source_schema"
-        )
-
-        st.session_state["source_table_schema"] = source_table_schema
-
-        st.divider()
-
+    with st.expander("参考开发代码，可选", expanded=False):
         dev_code = st.text_area(
-            "参考开发代码，可选",
+            "参考开发代码",
             key="dev_code",
             height=220,
-            placeholder="可以粘贴 SQL、PySpark、DataWorks 调度代码等。"
+            placeholder="可以粘贴 SQL、PySpark、DataWorks 调度代码等。",
+            label_visibility="collapsed"
         )
 
     # =========================
@@ -478,7 +474,7 @@ if st.session_state["current_step"] == STEP_INPUT:
                     user_content
                 )
                 if is_llm_error(draft_result):
-                    st.error(draft_result)
+                    render_error_with_fold(draft_result)
                     st.stop()
 
                 st.session_state["prd_draft_analysis_result"] = draft_result
@@ -669,7 +665,7 @@ elif st.session_state["current_step"] == STEP_PENDING:
                     user_content
                 )
                 if is_llm_error(new_analysis_result):
-                    st.error(new_analysis_result)
+                    render_error_with_fold(new_analysis_result)
                     st.stop()
 
                 st.session_state["pending_confirm_history"] += f"""
@@ -828,7 +824,7 @@ elif st.session_state["current_step"] == STEP_FINAL:
                 user_content
             )
             if is_llm_error(final_result):
-                st.error(final_result)
+                render_error_with_fold(final_result)
                 st.stop()
 
             st.session_state["prd_final_analysis_result"] = final_result
@@ -962,7 +958,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                 user_content
             )
             if is_llm_error(test_result):
-                st.error(test_result)
+                render_error_with_fold(test_result)
                 st.stop()
 
             st.session_state["test_case_result"] = test_result
@@ -1054,7 +1050,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
 """
                             _batch_analysis = call_llm(SQL_DIFF_ANALYSIS_PROMPT, _batch_content)
                             if is_llm_error(_batch_analysis):
-                                st.error(_batch_analysis)
+                                render_error_with_fold(_batch_analysis)
                             else:
                                 st.session_state["batch_diff_analysis"] = _batch_analysis
                                 st.rerun()
@@ -1111,7 +1107,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                         _cached = st.session_state["sql_run_results"].get(_i)
                         if _cached:
                             if _cached["err"]:
-                                st.error(f"执行失败：{_cached['err']}")
+                                render_error_with_fold(f"执行失败：{_cached['err']}")
                             elif _cached["df"].empty:
                                 st.success("校验通过，无差异")
                             else:
@@ -1161,7 +1157,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                                                 _analysis_content
                                             )
                                             if is_llm_error(_analysis_result):
-                                                st.error(_analysis_result)
+                                                render_error_with_fold(_analysis_result)
                                             else:
                                                 st.session_state[_analysis_key] = _analysis_result
                                                 st.rerun()

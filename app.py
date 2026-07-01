@@ -330,27 +330,26 @@ if st.session_state["current_step"] == STEP_INPUT:
     )
 
     # =========================
-    # Tab 布局：PRD / 补充说明 / 表结构 / 开发代码
+    # Tab 布局：PRD / 表结构 / 补充说明 / 开发代码
     # =========================
 
-    _tab_prd, _tab_notes, _tab_schema, _tab_code = st.tabs([
+    _tab_prd, _tab_schema, _tab_notes, _tab_code = st.tabs([
         "📄 PRD",
-        "📝 补充说明",
         "🗄️ 表结构",
+        "📝 补充说明",
         "💻 开发代码",
     ])
 
     # ----- Tab 1: PRD -----
     with _tab_prd:
+        st.caption("上传 PRD 文件或直接粘贴文本，二选一即可。")
         _col_prd_left, _col_prd_right = st.columns(2)
 
         with _col_prd_left:
-            st.markdown("**📎 上传 PRD 文件**")
             prd_file = st.file_uploader(
-                "支持 txt、md、pdf、docx、xlsx、sql、csv、json、py",
+                "📎 上传 PRD 文件（txt、md、pdf、docx、xlsx、sql、csv、json、py）",
                 type=["txt", "md", "pdf", "docx", "xlsx", "sql", "csv", "json", "py"],
                 key=f"prd_file_{st.session_state['prd_file_uploader_version']}",
-                label_visibility="collapsed"
             )
 
             if prd_file is not None:
@@ -358,9 +357,9 @@ if st.session_state["current_step"] == STEP_INPUT:
                 st.session_state["uploaded_prd_text"] = uploaded_text
 
             if st.session_state.get("uploaded_prd_text", ""):
-                st.success("已读取上传的 PRD 文件。")
+                st.success(f"✅ 已读取：{prd_file.name if prd_file else '上传的文件'}")
 
-                if st.button("清除已上传内容"):
+                if st.button("🗑️ 清除已上传文件"):
                     st.session_state["uploaded_prd_text"] = ""
                     st.session_state["prd_file_uploader_version"] += 1
                     st.rerun()
@@ -368,50 +367,50 @@ if st.session_state["current_step"] == STEP_INPUT:
                 st.caption("未上传文件，可在右侧粘贴内容。")
 
         with _col_prd_right:
-            st.markdown("**✏️ 粘贴 PRD 内容**")
             prd_manual_text = st.text_area(
-                "粘贴 PRD 内容",
+                "✏️ 粘贴 PRD 内容",
                 key="prd_manual_text",
                 height=260,
-                placeholder="请在这里粘贴 PRD 文本。如果已经上传文件，也可以在这里补充说明。",
-                label_visibility="collapsed"
+                placeholder="请在这里粘贴 PRD 文本。\n如果已经上传文件，也可以在这里补充说明。",
             )
 
-    # ----- Tab 2: 补充说明 -----
+    # ----- Tab 2: 表结构 -----
+    with _tab_schema:
+        st.caption("从 ODPS 在线拉取结果表和源表结构，填写分区条件后即可用于分析。")
+        _col_schema_left, _col_schema_right = st.columns(2)
+
+        with _col_schema_left:
+            result_table_schema = render_table_schema_uploader(
+                title="结果表表结构",
+                state_prefix="result_schema"
+            )
+            st.session_state["result_table_schema"] = result_table_schema
+
+        with _col_schema_right:
+            source_table_schema = render_table_schema_uploader(
+                title="源表表结构",
+                state_prefix="source_schema"
+            )
+            st.session_state["source_table_schema"] = source_table_schema
+
+    # ----- Tab 3: 补充说明 -----
     with _tab_notes:
+        st.caption("粘贴会议纪要、评审记录等，帮助 AI 更准确理解需求口径。")
         meeting_notes = st.text_area(
-            "会议纪要",
+            "会议纪要 / 评审记录",
             key="meeting_notes",
             height=220,
-            placeholder="例如：会议中确认了统计口径、过滤条件、字段含义等。",
+            placeholder="例如：\n- 会议中确认了订单状态枚举值的映射关系\n- 过滤条件需排除测试账号\n- 金额字段保留两位小数",
         )
-
-    # ----- Tab 3: 表结构 -----
-    with _tab_schema:
-        st.markdown("**结果表表结构**")
-        result_table_schema = render_table_schema_uploader(
-            title="结果表表结构",
-            state_prefix="result_schema"
-        )
-        st.session_state["result_table_schema"] = result_table_schema
-
-        st.divider()
-
-        st.markdown("**源表表结构**")
-        source_table_schema = render_table_schema_uploader(
-            title="源表表结构",
-            state_prefix="source_schema"
-        )
-        st.session_state["source_table_schema"] = source_table_schema
 
     # ----- Tab 4: 开发代码 -----
     with _tab_code:
+        st.caption("粘贴参考开发代码（SQL、PySpark、DataWorks 调度等），帮助 AI 理解加工逻辑。")
         dev_code = st.text_area(
             "参考开发代码",
             key="dev_code",
             height=300,
             placeholder="可以粘贴 SQL、PySpark、DataWorks 调度代码等。",
-            label_visibility="collapsed"
         )
 
     # =========================

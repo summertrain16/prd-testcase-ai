@@ -836,7 +836,7 @@ def sync_pending_points_from_widgets() -> None:
     st.session_state["prd_pending_answers"] = pending_points_to_llm_text(rows)
 
 
-def render_table_schema_uploader(title: str, state_prefix: str) -> str:
+def render_table_schema_uploader(title: str, state_prefix: str, show_subheader: bool = True) -> str:
     """
     渲染表结构组件：支持下拉选择"ODPS 拉取"或"xlsx 上传"。
     ODPS 模式：逐行添加表名，一键批量拉取，失败跳过可重试。
@@ -865,7 +865,8 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
             st.session_state.get("odps_endpoint", "").strip(),
         ) else "xlsx"
 
-    st.subheader(title)
+    if show_subheader:
+        st.subheader(title)
 
     # 模式下拉
     _odps_available = get_odps_entry(

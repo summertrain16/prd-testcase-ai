@@ -536,7 +536,7 @@ def render_step_progress() -> None:
         current_index = 0
 
     progress_value = (current_index + 1) / len(STEP_OPTIONS)
-    st.progress(progress_value, help=f"当前进度：{current_index + 1}/{len(STEP_OPTIONS)}")
+    st.progress(progress_value)
 
     cols = st.columns(len(STEP_OPTIONS))
 

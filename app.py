@@ -1002,8 +1002,8 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                 if "sql_run_results" not in st.session_state:
                     st.session_state["sql_run_results"] = {}
 
-                # 一键执行全部
-                _col_batch, _col_clear, _col_analyze = st.columns([3, 1, 2])
+                # 一键执行全部 + 一键分析
+                _col_batch, _col_analyze = st.columns([2, 2])
                 with _col_batch:
                     if st.button("一键执行全部 SQL", type="primary", use_container_width=True, key="batch_run_sql"):
                         _progress = st.progress(0.0)
@@ -1019,13 +1019,6 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                             st.success(f"全部执行完成（{_ok} 段）。")
                         else:
                             st.warning(f"执行完成：成功 {_ok} 段，失败 {_fail} 段。")
-                        st.rerun()
-                with _col_clear:
-                    if st.button("清空执行结果", use_container_width=True, key="clear_run_results"):
-                        st.session_state["sql_run_results"] = {}
-                        st.session_state["batch_diff_analysis"] = ""
-                        for _ci in range(1, len(_sql_blocks) + 1):
-                            st.session_state.pop(f"sql_diff_analysis_{_ci}", None)
                         st.rerun()
                 with _col_analyze:
                     # 检查是否有差异结果（非空且非报错）
@@ -1066,11 +1059,21 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                                 st.session_state["batch_diff_analysis"] = _batch_analysis
                                 st.rerun()
 
-                # 展示汇总分析结果
+                # 展示汇总分析结果 + 导出
                 _batch_analysis_cached = st.session_state.get("batch_diff_analysis", "")
                 if _batch_analysis_cached:
                     st.markdown("---")
-                    st.markdown("#### 🤖 汇总差异分析报告")
+                    _ba_c1, _ba_c2 = st.columns([4, 1])
+                    with _ba_c1:
+                        st.markdown("#### 🤖 汇总差异分析报告")
+                    with _ba_c2:
+                        st.download_button(
+                            label="📥 导出报告",
+                            data=_batch_analysis_cached.encode("utf-8-sig"),
+                            file_name="汇总差异分析报告.md",
+                            mime="text/markdown",
+                            key="download_batch_analysis"
+                        )
                     render_markdown_in_scroll_box(
                         title="汇总差异分析",
                         markdown_text=_batch_analysis_cached,
@@ -1131,10 +1134,12 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
 
                                 # ===== 逐段 AI 差异分析 =====
                                 _analysis_key = f"sql_diff_analysis_{_i}"
-                                if st.button("🤖 AI 分析差异原因", key=f"analyze_diff_{_i}"):
-                                    with st.spinner("AI 分析中..."):
-                                        _diff_sample = _cached["df"].head(50).to_csv(index=False)
-                                        _analysis_content = f"""
+                                _a_c1, _a_c2 = st.columns([3, 1])
+                                with _a_c1:
+                                    if st.button("🤖 AI 分析差异原因", key=f"analyze_diff_{_i}"):
+                                        with st.spinner("AI 分析中..."):
+                                            _diff_sample = _cached["df"].head(50).to_csv(index=False)
+                                            _analysis_content = f"""
 以下是执行的校验 SQL：
 
 ```sql
@@ -1151,18 +1156,26 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
 3. 需要进一步确认的问题
 4. 修复建议
 """
-                                        _analysis_result = call_llm(
-                                            SQL_DIFF_ANALYSIS_PROMPT,
-                                            _analysis_content
-                                        )
-                                        if is_llm_error(_analysis_result):
-                                            st.error(_analysis_result)
-                                        else:
-                                            st.session_state[_analysis_key] = _analysis_result
-                                            st.rerun()
+                                            _analysis_result = call_llm(
+                                                SQL_DIFF_ANALYSIS_PROMPT,
+                                                _analysis_content
+                                            )
+                                            if is_llm_error(_analysis_result):
+                                                st.error(_analysis_result)
+                                            else:
+                                                st.session_state[_analysis_key] = _analysis_result
+                                                st.rerun()
 
                                 _analysis_cached = st.session_state.get(_analysis_key, "")
                                 if _analysis_cached:
+                                    with _a_c2:
+                                        st.download_button(
+                                            label="📥 导出",
+                                            data=_analysis_cached.encode("utf-8-sig"),
+                                            file_name=f"sql_{_i:03d}_差异分析报告.md",
+                                            mime="text/markdown",
+                                            key=f"download_analysis_{_i}"
+                                        )
                                     st.markdown("---")
                                     st.markdown("#### 🤖 AI 差异分析报告")
                                     render_markdown_in_scroll_box(
@@ -1171,6 +1184,17 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                                         height=400,
                                         expanded=True
                                     )
+
+                # 清空执行结果 — 放在折叠区，防止误触
+                with st.expander("⚠️ 危险操作（清空所有执行结果和分析报告）", expanded=False):
+                    st.warning("点击后会清空所有 SQL 的执行结果和 AI 差异分析报告，不可恢复。")
+                    if st.button("确认清空全部执行结果", key="clear_run_results"):
+                        st.session_state["sql_run_results"] = {}
+                        st.session_state["batch_diff_analysis"] = ""
+                        for _ci in range(1, len(_sql_blocks) + 1):
+                            st.session_state.pop(f"sql_diff_analysis_{_ci}", None)
+                        st.rerun()
+
         else:
             st.info("未配置 ODPS 连接，仅支持下载 SQL 脚本手动执行。配置方法见侧边栏 ODPS 连接配置。")
 else:

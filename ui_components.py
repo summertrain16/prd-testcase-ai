@@ -942,14 +942,14 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
         return ""
 
     # ===== ODPS 拉取模式 =====
-    # 批量添加表名（多行文本框，每行一个表名）
+    # 批量添加表名 + 批量填写分区（始终一起显示）
     _c_add_input, _c_add_btn = st.columns([4, 1])
     with _c_add_input:
         _add_tbl_text = st.text_area(
             "输入表名，每行一个（支持 项目名.表名）",
             key=f"{state_prefix}_add_input_{st.session_state[uploader_version_key]}",
             height=80,
-            placeholder="例如：\nods_project.ods_order_detail_di\ndwd_project.dwd_order_d\nads_project.ads_order_summary_df",
+            placeholder="支持 项目名.表名 格式，每行一个\n例如：\nods_project.ods_order_detail_di\ndwd_project.dwd_order_d",
             label_visibility="collapsed"
         )
     with _c_add_btn:
@@ -977,25 +977,27 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
                     st.session_state[uploader_version_key] += 1
                 st.rerun()
 
-    # 批量填写分区
-    if st.session_state[items_key]:
-        _c_pt_input, _c_pt_btn = st.columns([4, 1])
-        with _c_pt_input:
-            _batch_pt_val = st.text_input(
-                "批量填写分区，应用到所有表",
-                key=f"{state_prefix}_batch_pt_input",
-                placeholder="例如：pt='20250101'  留空=无分区",
-                label_visibility="collapsed"
-            )
-        with _c_pt_btn:
-            if st.button("一键填分区", key=f"{state_prefix}_batch_pt_btn", use_container_width=True):
-                _pt_to_set = _batch_pt_val.strip()
-                for _item in st.session_state[items_key]:
-                    _item["partition"] = _pt_to_set
-                    _pt_widget_key = f"{state_prefix}_pt_{_item['id']}"
-                    st.session_state[_pt_widget_key] = _pt_to_set
+    # 批量填写分区（始终显示，没有表时点击不报错）
+    _c_pt_input, _c_pt_btn = st.columns([4, 1])
+    with _c_pt_input:
+        _batch_pt_val = st.text_input(
+            "批量填写分区，应用到所有表",
+            key=f"{state_prefix}_batch_pt_input",
+            placeholder="例如：pt='20250101'  留空=无分区",
+            label_visibility="collapsed"
+        )
+    with _c_pt_btn:
+        if st.button("一键填分区", key=f"{state_prefix}_batch_pt_btn", use_container_width=True):
+            _pt_to_set = _batch_pt_val.strip()
+            for _item in st.session_state[items_key]:
+                _item["partition"] = _pt_to_set
+                _pt_widget_key = f"{state_prefix}_pt_{_item['id']}"
+                st.session_state[_pt_widget_key] = _pt_to_set
+            if st.session_state[items_key]:
                 st.success(f"已将 {_pt_to_set if _pt_to_set else '无分区'} 应用到所有表。")
-                st.rerun()
+            else:
+                st.caption("请先添加表再填分区。")
+            st.rerun()
 
     # 一键拉取按钮
     _pending_items = [x for x in st.session_state[items_key] if x.get("fetch_status") in ("pending", "error")]
@@ -1052,11 +1054,6 @@ def render_table_schema_uploader(title: str, state_prefix: str) -> str:
 
     # ===== 统一渲染行列表 =====
     if not st.session_state[items_key]:
-        render_empty_state(
-            icon="📭",
-            title=f"暂无{title}",
-            desc="在上方输入表名，点击「一键添加」后拉取表结构。",
-        )
         return ""
 
     st.write(f"共 {len(st.session_state[items_key])} 张表：")

@@ -13,8 +13,9 @@ PRD 测试用例生成工具 — 主入口文件
 """
 
 import os
-
 import io
+import hashlib
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -47,6 +48,8 @@ from ui_components import (
     render_pending_points_data_editor,
     sync_pending_points_from_widgets,
     render_table_schema_uploader,
+    render_empty_state,
+    render_error_with_fold,
     go_to_step,
     get_materials_from_state,
 )
@@ -63,6 +66,24 @@ _ENV_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 _ENV_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 
+def _ts_filename(base: str, ext: str) -> str:
+    """生成带时间戳的文件名，避免多次下载覆盖。"""
+    _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{base}_{_ts}.{ext}"
+
+
+def _materials_hash(materials: dict) -> str:
+    """计算输入材料的 hash，用于判断是否需要重新调用 LLM。"""
+    _raw = "|".join([
+        materials.get("prd_text", ""),
+        materials.get("meeting_notes", ""),
+        materials.get("result_table_schema", ""),
+        materials.get("source_table_schema", ""),
+        materials.get("dev_code", ""),
+    ])
+    return hashlib.md5(_raw.encode("utf-8")).hexdigest()
+
+
 # =========================
 # 2. Streamlit 页面配置
 # =========================
@@ -77,11 +98,11 @@ inject_custom_css()
 
 st.markdown(
     """
-<div class="app-hero">
-    <div class="app-hero-title">DataTest 自动化平台</div>
-    <div class="app-hero-desc">
+<div class="app-hero" role="banner">
+    <h1 class="app-hero-title">DataTest 自动化平台</h1>
+    <p class="app-hero-desc">
         智能解析 PRD 需求，自动生成数据测试用例与 SQL 校验脚本，驱动数据质量保障全流程。
-    </div>
+    </p>
 </div>
     """,
     unsafe_allow_html=True
@@ -272,6 +293,9 @@ odps_sk = "你的AccessKey Secret"
 """)
 
     st.divider()
+    # #5：刷新提示
+    st.caption("⚠️ 刷新页面会丢失所有数据（PRD、表结构、分析结果等），请谨慎操作。")
+
     if st.button("清空全部结果", use_container_width=True):
         st.session_state["prd_draft_analysis_result"] = ""
         st.session_state["prd_pending_answers"] = ""
@@ -303,6 +327,8 @@ odps_sk = "你的AccessKey Secret"
         # 清空 SQL 执行结果缓存
         st.session_state["sql_run_results"] = {}
         st.session_state["batch_diff_analysis"] = ""
+        st.session_state["_sql_batch_running"] = False
+        st.session_state["_sql_batch_idx"] = 0
         # 清空 ODPS 连接缓存（下次用新配置重建）
         get_odps_entry.clear()
         st.rerun()
@@ -315,45 +341,97 @@ odps_sk = "你的AccessKey Secret"
 if st.session_state["current_step"] == STEP_INPUT:
     render_page_header(
         title="1. 输入材料",
-        desc="上传或粘贴 PRD，并补充会议纪要、源表表结构、结果表表结构、分区信息和开发代码。",
+        desc="上传或粘贴 PRD，补充表结构和参考信息，一键生成初版需求提炼。",
         icon=""
     )
 
     # =========================
-    # PRD 输入区
+    # Tab 布局：PRD / 表结构 / 补充说明 / 开发代码
     # =========================
 
-    st.header("一、输入 PRD")
+    _tab_prd, _tab_schema, _tab_notes, _tab_code = st.tabs([
+        "📄 PRD",
+        "🗄️ 表结构",
+        "📝 补充说明",
+        "💻 开发代码",
+    ])
 
-    with st.expander("上传 PRD 文件", expanded=True):
-        prd_file = st.file_uploader(
-            "支持 txt、md、pdf、docx、xlsx、sql、csv、json、py",
-            type=["txt", "md", "pdf", "docx", "xlsx", "sql", "csv", "json", "py"],
-            key=f"prd_file_{st.session_state['prd_file_uploader_version']}"
+    # ----- Tab 1: PRD -----
+    with _tab_prd:
+        st.caption("上传 PRD 文件或直接粘贴文本，二选一即可。")
+        _col_prd_left, _col_prd_right = st.columns(2)
+
+        with _col_prd_left:
+            prd_file = st.file_uploader(
+                "📎 上传 PRD 文件（txt、md、pdf、docx、xlsx、sql、csv、json、py）",
+                type=["txt", "md", "pdf", "docx", "xlsx", "sql", "csv", "json", "py"],
+                key=f"prd_file_{st.session_state['prd_file_uploader_version']}",
+            )
+
+            if prd_file is not None:
+                uploaded_text = read_uploaded_file(prd_file)
+                st.session_state["uploaded_prd_text"] = uploaded_text
+
+            if st.session_state.get("uploaded_prd_text", ""):
+                st.success(f"✅ 已读取：{prd_file.name if prd_file else '上传的文件'}")
+
+                if st.button("🗑️ 清除已上传文件"):
+                    st.session_state["uploaded_prd_text"] = ""
+                    st.session_state["prd_file_uploader_version"] += 1
+                    st.rerun()
+            else:
+                st.caption("未上传文件，可在右侧粘贴内容。")
+
+        with _col_prd_right:
+            prd_manual_text = st.text_area(
+                "✏️ 粘贴 PRD 内容",
+                key="prd_manual_text",
+                height=260,
+                placeholder="请在这里粘贴 PRD 文本。\n如果已经上传文件，也可以在这里补充说明。",
+            )
+
+    # ----- Tab 2: 表结构 -----
+    with _tab_schema:
+        st.caption("从 ODPS 在线拉取结果表和源表结构，填写分区条件后即可用于分析。")
+        st.markdown("### 结果表表结构")
+        result_table_schema = render_table_schema_uploader(
+            title="结果表表结构",
+            state_prefix="result_schema"
+        )
+        st.session_state["result_table_schema"] = result_table_schema
+
+        st.divider()
+
+        st.markdown("### 源表表结构")
+        source_table_schema = render_table_schema_uploader(
+            title="源表表结构",
+            state_prefix="source_schema"
+        )
+        st.session_state["source_table_schema"] = source_table_schema
+
+    # ----- Tab 3: 补充说明 -----
+    with _tab_notes:
+        st.caption("粘贴会议纪要、评审记录等，帮助 AI 更准确理解需求口径。")
+        meeting_notes = st.text_area(
+            "会议纪要 / 评审记录",
+            key="meeting_notes",
+            height=220,
+            placeholder="例如：\n- 会议中确认了订单状态枚举值的映射关系\n- 过滤条件需排除测试账号\n- 金额字段保留两位小数",
         )
 
-        if prd_file is not None:
-            uploaded_text = read_uploaded_file(prd_file)
-            st.session_state["uploaded_prd_text"] = uploaded_text
-
-        if st.session_state.get("uploaded_prd_text", ""):
-            st.success("已读取上传的 PRD 文件。")
-
-            if st.button("清除已上传内容"):
-                st.session_state["uploaded_prd_text"] = ""
-                st.session_state["prd_file_uploader_version"] += 1
-                st.rerun()
-        else:
-            st.info("未上传 PRD 文件，可在下方粘贴内容。")
-
-    with st.expander("粘贴 PRD 内容", expanded=True):
-        prd_manual_text = st.text_area(
-            "粘贴 PRD 内容",
-            key="prd_manual_text",
-            height=260,
-            placeholder="请在这里粘贴 PRD 文本。如果已经上传文件，也可以在这里补充说明。",
-            label_visibility="collapsed"
+    # ----- Tab 4: 开发代码 -----
+    with _tab_code:
+        st.caption("粘贴参考开发代码（SQL、PySpark、DataWorks 调度等），帮助 AI 理解加工逻辑。")
+        dev_code = st.text_area(
+            "参考开发代码",
+            key="dev_code",
+            height=300,
+            placeholder="可以粘贴 SQL、PySpark、DataWorks 调度代码等。",
         )
+
+    # =========================
+    # 合并 PRD 文本
+    # =========================
 
     prd_text = ""
 
@@ -365,70 +443,39 @@ if st.session_state["current_step"] == STEP_INPUT:
 
     st.session_state["prd_text"] = prd_text
 
+    # =========================
+    # 底部统一主按钮 + 材料摘要徽章
+    # =========================
+
+    st.divider()
+
+    # 材料摘要徽章
+    _badge_parts = []
     if prd_text.strip():
-        with st.expander("查看当前 PRD 原文", expanded=False):
-            st.text_area(
-                "当前合并后的 PRD 内容",
-                value=prd_text,
-                height=300,
-                disabled=True
-            )
+        _badge_parts.append("PRD ✓")
+    if meeting_notes.strip():
+        _badge_parts.append("会议纪要 ✓")
+    if result_table_schema.strip():
+        _badge_parts.append("结果表 ✓")
+    if source_table_schema.strip():
+        _badge_parts.append("源表 ✓")
+    if dev_code.strip():
+        _badge_parts.append("开发代码 ✓")
 
-    # =========================
-    # 补充信息区
-    # =========================
-
-    st.header("二、补充信息，可选")
-
-    with st.expander("填写会议纪要、表结构、分区、开发代码等补充信息", expanded=False):
-        meeting_notes = st.text_area(
-            "会议纪要，可选",
-            key="meeting_notes",
-            height=140,
-            placeholder="例如：会议中确认了统计口径、过滤条件、字段含义等。"
+    if _badge_parts:
+        _badge_html = "  ".join(
+            f'<span style="display:inline-block;background:#e8f5e9;color:#2e7d32;'
+            f'font-size:0.8em;padding:2px 10px;border-radius:12px;margin:2px;">{b}</span>'
+            for b in _badge_parts
         )
-
-
-        st.divider()
-
-        result_table_schema = render_table_schema_uploader(
-            title="结果表表结构",
-            state_prefix="result_schema"
-        )
-
-        st.session_state["result_table_schema"] = result_table_schema
-
-        st.divider()
-
-        source_table_schema = render_table_schema_uploader(
-            title="源表表结构",
-            state_prefix="source_schema"
-        )
-
-        st.session_state["source_table_schema"] = source_table_schema
-
-        st.divider()
-
-        dev_code = st.text_area(
-            "参考开发代码，可选",
-            key="dev_code",
-            height=220,
-            placeholder="可以粘贴 SQL、PySpark、DataWorks 调度代码等。"
-        )
-
-    # =========================
-    # 第一步：生成初版需求提炼和待确认点
-    # =========================
-
-    st.header("三、第一步：生成初版需求提炼和待确认点")
-
-    st.info(
-        "第一步会根据 PRD、会议纪要、表结构、分区信息、开发代码进行初版分析；不确定的内容会放到待确认点中。"
-    )
+        st.markdown(f"已准备材料：{_badge_html}", unsafe_allow_html=True)
+    else:
+        st.info("尚未填写任何材料，请至少上传或粘贴 PRD 内容。")
 
     _generate_draft_clicked = st.button(
-        "🚀 生成初版需求提炼和待确认点",
-        type="primary"
+        "🚀 开始分析 PRD",
+        type="primary",
+        use_container_width=True
     )
 
     if _generate_draft_clicked:
@@ -437,8 +484,28 @@ if st.session_state["current_step"] == STEP_INPUT:
         if not materials["prd_text"].strip():
             st.warning("请先上传或粘贴 PRD 内容。")
         else:
-            with st.spinner("正在分析 PRD..."):
-                user_content = f"""
+            # #6：缓存判断 — 输入材料没变就不重复调 LLM
+            _current_hash = _materials_hash(materials)
+            _cached_hash = st.session_state.get("_draft_materials_hash", "")
+            _cached_result = st.session_state.get("prd_draft_analysis_result", "")
+
+            if _current_hash == _cached_hash and _cached_result:
+                st.info("输入材料未变化，使用上次的分析结果。")
+                st.session_state["prd_current_analysis_result"] = _cached_result
+                st.session_state["pending_points_rows"] = parse_pending_points_from_markdown(_cached_result)
+                st.session_state["pending_points_editor_version"] += 1
+                st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
+                    st.session_state["pending_points_rows"]
+                )
+                st.session_state["pending_analysis_round"] = 1
+                st.session_state["pending_confirm_history"] = ""
+                st.session_state["ignore_remaining_pending_points"] = False
+                st.session_state["ignored_pending_points_text"] = ""
+                st.session_state["prd_final_analysis_result"] = ""
+                st.session_state["test_case_result"] = ""
+            else:
+                with st.spinner("正在分析 PRD..."):
+                    user_content = f"""
 以下是 PRD 原文：
 
 {materials["prd_text"]}
@@ -459,49 +526,39 @@ if st.session_state["current_step"] == STEP_INPUT:
 
 {materials["dev_code"] if materials["dev_code"].strip() else "未提供"}
 
-请基于以上全部信息进行第一轮分析。
-
-请特别注意：
-1. 测试用例需要精简，但不能把所有字段的一致性比对强行混在一个用例里。
-2. 最重要的测试是"主键唯一性校验"和"结果表与源表加工结果一致性比对"。
-3. 字段一致性比对需要按来源表、加工逻辑、过滤条件、关联条件、分区条件和复杂度合理拆分。
-4. 简单同源、同关联、同过滤、同分区、直接映射的字段，可以合并到同一条一致性比对用例。
-5. 复杂字段、金额字段、枚举映射字段、case when 字段、聚合字段、去重字段、不同源表字段，应单独生成一致性比对用例和 SQL。
-6. 每条一致性比对 SQL 的 final select 必须同时展示源表加工后的字段值和结果表字段值。
-7. 如果存在差异，SQL 结果应能直观看到 expected/source 值、actual/result 值、diff_flag 和 diff_type。
-8. 不要只输出差异数量，要输出差异明细。
-9. 复杂字段的 expected CTE 中要保留必要中间字段，方便排查差异原因。
+请基于以上全部信息进行第一轮需求提炼分析。
 """
 
-                draft_result = call_llm(
-                    PRD_DRAFT_ANALYSIS_PROMPT,
-                    user_content
-                )
-                if is_llm_error(draft_result):
-                    st.error(draft_result)
-                    st.stop()
+                    draft_result = call_llm(
+                        PRD_DRAFT_ANALYSIS_PROMPT,
+                        user_content
+                    )
+                    if is_llm_error(draft_result):
+                        render_error_with_fold(draft_result)
+                        st.stop()
 
-                st.session_state["prd_draft_analysis_result"] = draft_result
-                st.session_state["prd_current_analysis_result"] = draft_result
+                    st.session_state["prd_draft_analysis_result"] = draft_result
+                    st.session_state["prd_current_analysis_result"] = draft_result
+                    st.session_state["_draft_materials_hash"] = _current_hash
 
-                st.session_state["pending_points_rows"] = parse_pending_points_from_markdown(
-                    draft_result
-                )
+                    st.session_state["pending_points_rows"] = parse_pending_points_from_markdown(
+                        draft_result
+                    )
 
-                st.session_state["pending_points_editor_version"] += 1
+                    st.session_state["pending_points_editor_version"] += 1
 
-                st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
-                    st.session_state["pending_points_rows"]
-                )
+                    st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
+                        st.session_state["pending_points_rows"]
+                    )
 
-                st.session_state["pending_analysis_round"] = 1
-                st.session_state["pending_confirm_history"] = ""
+                    st.session_state["pending_analysis_round"] = 1
+                    st.session_state["pending_confirm_history"] = ""
 
-                st.session_state["ignore_remaining_pending_points"] = False
-                st.session_state["ignored_pending_points_text"] = ""
+                    st.session_state["ignore_remaining_pending_points"] = False
+                    st.session_state["ignored_pending_points_text"] = ""
 
-                st.session_state["prd_final_analysis_result"] = ""
-                st.session_state["test_case_result"] = ""
+                    st.session_state["prd_final_analysis_result"] = ""
+                    st.session_state["test_case_result"] = ""
 
             go_to_step(STEP_PENDING)
 
@@ -562,7 +619,7 @@ elif st.session_state["current_step"] == STEP_PENDING:
     st.download_button(
         label="📥 下载 PRD 分析结果（Excel）",
         data=_download_excel_data,
-        file_name="prd_当前需求分析和待确认点.xlsx",
+        file_name=_ts_filename("prd_当前需求分析和待确认点", "xlsx"),
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
@@ -593,14 +650,17 @@ elif st.session_state["current_step"] == STEP_PENDING:
     )
 
     if not st.session_state["pending_points_rows"]:
-        st.success("当前没有阻塞测试设计或 SQL 校验的待确认点，可以继续生成最终版需求提炼表。")
+        st.success("当前没有待确认点，初版分析即为最终版，可直接生成测试用例。")
         st.session_state["prd_pending_answers"] = "无待确认点。"
 
         if st.button(
-            "进入第 3 步：生成最终版",
+            "🚀 直接生成测试用例",
             type="primary"
         ):
-                go_to_step(STEP_FINAL)
+            # 无待确认点且无收敛历史 → 初版即终版，跳过第 3 步
+            st.session_state["prd_final_analysis_result"] = st.session_state["prd_current_analysis_result"]
+            st.session_state["test_case_result"] = ""
+            go_to_step(STEP_TEST_CASE)
 
     else:
         render_pending_points_data_editor()
@@ -618,7 +678,7 @@ elif st.session_state["current_step"] == STEP_PENDING:
 
         with col_b:
             ignore_pending_clicked = st.button(
-                "⏭️ 忽略剩余待确认点，继续",
+                "⏭️ 忽略待确认点，直接生成测试用例",
                 use_container_width=True
             )
 
@@ -669,7 +729,7 @@ elif st.session_state["current_step"] == STEP_PENDING:
                     user_content
                 )
                 if is_llm_error(new_analysis_result):
-                    st.error(new_analysis_result)
+                    render_error_with_fold(new_analysis_result)
                     st.stop()
 
                 st.session_state["pending_confirm_history"] += f"""
@@ -720,9 +780,10 @@ elif st.session_state["current_step"] == STEP_PENDING:
                 st.session_state["pending_points_rows"]
             )
 
-            st.success("已标记忽略剩余待确认点，可以继续生成最终版需求提炼表。")
-
-            go_to_step(STEP_FINAL)
+            # 直接跳到第 4 步，初版结果即为终版
+            st.session_state["prd_final_analysis_result"] = st.session_state["prd_current_analysis_result"]
+            st.session_state["test_case_result"] = ""
+            go_to_step(STEP_TEST_CASE)
 
     if st.session_state.get("ignore_remaining_pending_points", False):
         st.warning(
@@ -828,7 +889,7 @@ elif st.session_state["current_step"] == STEP_FINAL:
                 user_content
             )
             if is_llm_error(final_result):
-                st.error(final_result)
+                render_error_with_fold(final_result)
                 st.stop()
 
             st.session_state["prd_final_analysis_result"] = final_result
@@ -868,7 +929,7 @@ elif st.session_state["current_step"] == STEP_FINAL:
         st.download_button(
             label="📥 下载需求提炼表（Excel）",
             data=_final_excel_data,
-            file_name="prd_最终版需求提炼表.xlsx",
+            file_name=_ts_filename("prd_最终版需求提炼表", "xlsx"),
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
@@ -955,6 +1016,15 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
 4. 不允许根据初版分析中的不确定内容自行脑补。
 5. 如果源表或结果表分区未提供，请在 SQL 中使用【分区字段】或 pt='YYYYMMDD' 占位，并在待确认问题中说明。
 6. 如果某个上传表结构的分区信息为『无分区』，不要强行给该表添加分区条件。
+7. 测试用例需要精简，但不能把所有字段的一致性比对强行混在一个用例里。
+8. 最重要的测试是"主键唯一性校验"和"结果表与源表加工结果一致性比对"。
+9. 字段一致性比对需要按来源表、加工逻辑、过滤条件、关联条件、分区条件和复杂度合理拆分。
+10. 简单同源、同关联、同过滤、同分区、直接映射的字段，可以合并到同一条一致性比对用例。
+11. 复杂字段、金额字段、枚举映射字段、case when 字段、聚合字段、去重字段、不同源表字段，应单独生成一致性比对用例和 SQL。
+12. 每条一致性比对 SQL 的 final select 必须同时展示源表加工后的字段值和结果表字段值。
+13. 如果存在差异，SQL 结果应能直观看到 expected/source 值、actual/result 值、diff_flag 和 diff_type。
+14. 不要只输出差异数量，要输出差异明细。
+15. 复杂字段的 expected CTE 中要保留必要中间字段，方便排查差异原因。
 """
 
             test_result = call_llm(
@@ -962,7 +1032,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                 user_content
             )
             if is_llm_error(test_result):
-                st.error(test_result)
+                render_error_with_fold(test_result)
                 st.stop()
 
             st.session_state["test_case_result"] = test_result
@@ -1002,31 +1072,78 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                 if "sql_run_results" not in st.session_state:
                     st.session_state["sql_run_results"] = {}
 
-                # 一键执行全部 + 一键分析
-                _col_batch, _col_analyze = st.columns([2, 2])
-                with _col_batch:
-                    if st.button("一键执行全部 SQL", type="primary", use_container_width=True, key="batch_run_sql"):
-                        _progress = st.progress(0.0)
-                        for _i, _sql_block in enumerate(_sql_blocks, 1):
-                            _progress.progress((_i - 1) / len(_sql_blocks))
-                            with st.spinner(f"执行 SQL-{_i:03d}（{_i}/{len(_sql_blocks)}）..."):
-                                _df_r, _err_r = run_single_sql(_odps_entry_run, _sql_block)
-                            st.session_state["sql_run_results"][_i] = {"df": _df_r, "err": _err_r}
-                        _progress.progress(1.0)
-                        _ok = sum(1 for v in st.session_state["sql_run_results"].values() if not v["err"])
-                        _fail = len(st.session_state["sql_run_results"]) - _ok
-                        if _fail == 0:
-                            st.success(f"全部执行完成（{_ok} 段）。")
-                        else:
-                            st.warning(f"执行完成：成功 {_ok} 段，失败 {_fail} 段。")
-                        st.rerun()
-                with _col_analyze:
-                    # 检查是否有差异结果（非空且非报错）
-                    _has_diff = any(
-                        v.get("df") is not None and not v.get("df").empty and not v.get("err")
-                        for v in st.session_state["sql_run_results"].values()
+                # ===== Fragment：SQL 执行区局部刷新，不重渲染整个页面 =====
+                @st.fragment(run_every=None)
+                def _sql_execution_fragment():
+                    _odps_entry_frag = get_odps_entry(
+                        st.session_state.get("odps_ak", "").strip(),
+                        st.session_state.get("odps_sk", "").strip(),
+                        st.session_state.get("odps_project", "").strip(),
+                        st.session_state.get("odps_endpoint", "").strip(),
                     )
-                    if _has_diff and st.button("🤖 一键分析所有差异", type="primary", use_container_width=True, key="batch_analyze_diff"):
+
+                    # 一键执行全部 + 停止 + 一键分析
+                    _col_batch, _col_stop, _col_analyze = st.columns([2, 1, 2])
+                    with _col_batch:
+                        _batch_clicked = st.button("一键执行全部 SQL", type="primary", use_container_width=True, key="batch_run_sql")
+                    with _col_stop:
+                        _stop_clicked = st.button("⏹️ 停止执行", use_container_width=True, key="stop_run_sql",
+ help="点击后停止后续 SQL 执行")
+                    with _col_analyze:
+                        _has_diff = any(
+                            v.get("df") is not None and not v.get("df").empty and not v.get("err")
+                            for v in st.session_state.get("sql_run_results", {}).values()
+                        )
+                        _analyze_clicked = st.button("🤖 一键分析所有差异", type="primary", use_container_width=True, key="batch_analyze_diff",
+ disabled=not _has_diff)
+
+                    # 停止按钮：清除执行中标志
+                    if _stop_clicked:
+                        st.session_state["_sql_batch_running"] = False
+                        st.rerun()
+
+                    # 一键执行逻辑：用 rerun 驱动的逐段执行，支持中途停止
+                    if _batch_clicked:
+                        # 启动批量执行模式
+                        st.session_state["_sql_batch_running"] = True
+                        st.session_state["_sql_batch_idx"] = 0
+                        st.rerun()
+
+                    # 批量执行中：每次 rerun 执行一段，检查停止标志
+                    if st.session_state.get("_sql_batch_running", False):
+                        _idx = st.session_state.get("_sql_batch_idx", 0)
+                        if _idx < len(_sql_blocks):
+                            _sql_block_b = _sql_blocks[_idx]
+                            # 用编辑后的 SQL（如果有）
+                            _edit_key_b = f"sql_edit_{_idx + 1}"
+                            _sql_to_run = st.session_state.get(_edit_key_b, _sql_block_b)
+                            with st.spinner(f"执行 SQL-{_idx + 1:03d}（{_idx + 1}/{len(_sql_blocks)}）..."):
+                                _df_r, _err_r = run_single_sql(_odps_entry_frag, _sql_to_run)
+                            st.session_state["sql_run_results"][_idx + 1] = {"df": _df_r, "err": _err_r}
+                            st.session_state["_sql_batch_idx"] = _idx + 1
+                            st.rerun()
+                        else:
+                            # 全部执行完毕
+                            st.session_state["_sql_batch_running"] = False
+                            _ok = sum(1 for v in st.session_state["sql_run_results"].values() if not v["err"])
+                            _fail = len(st.session_state["sql_run_results"]) - _ok
+                            if _fail == 0:
+                                st.success(f"全部执行完成（{_ok} 段）。")
+                            else:
+                                st.warning(f"执行完成：成功 {_ok} 段，失败 {_fail} 段。")
+                            st.rerun()
+
+                    # 批量执行中被停止的提示
+                    if not st.session_state.get("_sql_batch_running", False) and st.session_state.get("_sql_batch_idx", 0) > 0:
+                        _b_idx = st.session_state.get("_sql_batch_idx", 0)
+                        if _b_idx < len(_sql_blocks):
+                            _ok_s = sum(1 for v in st.session_state.get("sql_run_results", {}).values() if not v["err"])
+                            _fail_s = len(st.session_state.get("sql_run_results", {})) - _ok_s
+                            st.info(f"执行已停止。已完成 {_b_idx}/{len(_sql_blocks)} 段（成功 {_ok_s}，失败 {_fail_s}）。")
+                            st.session_state["_sql_batch_idx"] = 0
+
+                    # 一键分析逻辑
+                    if _analyze_clicked:
                         with st.spinner("AI 汇总分析中..."):
                             _batch_content_parts = []
                             for _bi, _bv in st.session_state["sql_run_results"].items():
@@ -1054,92 +1171,151 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
 """
                             _batch_analysis = call_llm(SQL_DIFF_ANALYSIS_PROMPT, _batch_content)
                             if is_llm_error(_batch_analysis):
-                                st.error(_batch_analysis)
+                                render_error_with_fold(_batch_analysis)
                             else:
                                 st.session_state["batch_diff_analysis"] = _batch_analysis
                                 st.rerun()
 
-                # 展示汇总分析结果 + 导出
-                _batch_analysis_cached = st.session_state.get("batch_diff_analysis", "")
-                if _batch_analysis_cached:
-                    st.markdown("---")
-                    _ba_c1, _ba_c2 = st.columns([4, 1])
-                    with _ba_c1:
-                        st.markdown("#### 🤖 汇总差异分析报告")
-                    with _ba_c2:
-                        st.download_button(
-                            label="📥 导出报告",
-                            data=_batch_analysis_cached.encode("utf-8-sig"),
-                            file_name="汇总差异分析报告.md",
-                            mime="text/markdown",
-                            key="download_batch_analysis"
-                        )
-                    render_markdown_in_scroll_box(
-                        title="汇总差异分析",
-                        markdown_text=_batch_analysis_cached,
-                        height=500,
-                        expanded=True
-                    )
-
-                # 逐段展示 + 执行
-                for _i, _sql_block in enumerate(_sql_blocks, 1):
-                    with st.expander(f"SQL-{_i:03d}", expanded=False):
-                        # 可编辑 SQL 文本框
-                        _edit_key = f"sql_edit_{_i}"
-                        if _edit_key not in st.session_state:
-                            st.session_state[_edit_key] = _sql_block
-                        _edited_sql = st.text_area(
-                            "SQL（可编辑修改后重跑）",
-                            key=_edit_key,
-                            height=300,
-                            label_visibility="collapsed"
+                    # 展示汇总分析结果 + 导出
+                    _batch_analysis_cached = st.session_state.get("batch_diff_analysis", "")
+                    if _batch_analysis_cached:
+                        st.divider()
+                        _ba_c1, _ba_c2 = st.columns([4, 1])
+                        with _ba_c1:
+                            st.markdown("#### 🤖 汇总差异分析报告")
+                        with _ba_c2:
+                            st.download_button(
+                                label="📥 导出报告",
+                                data=_batch_analysis_cached.encode("utf-8-sig"),
+                                file_name=_ts_filename("汇总差异分析报告", "md"),
+                                mime="text/markdown",
+                                key="download_batch_analysis"
+                            )
+                        render_markdown_in_scroll_box(
+                            title="汇总差异分析",
+                            markdown_text=_batch_analysis_cached,
+                            height=500,
+                            expanded=True
                         )
 
-                        _c_run, _c_reset, _c_export = st.columns([2, 1, 2])
-                        with _c_run:
-                            if st.button("执行", key=f"run_sql_{_i}"):
-                                with st.spinner("执行中..."):
-                                    _df_result, _err = run_single_sql(_odps_entry_run, _edited_sql)
-                                st.session_state["sql_run_results"][_i] = {"df": _df_result, "err": _err}
-                                st.rerun()
-                        with _c_reset:
-                            if st.button("恢复原始", key=f"reset_sql_{_i}"):
-                                st.session_state[_edit_key] = _sql_block
-                                st.rerun()
+                    # ===== 结果总览 + 过滤器 =====
+                    _run_results = st.session_state.get("sql_run_results", {})
+                    _total_sql = len(_sql_blocks)
+                    _executed = len(_run_results)
+                    _pass_cnt = sum(1 for v in _run_results.values() if not v["err"] and v.get("df") is not None and v["df"].empty)
+                    _diff_cnt = sum(1 for v in _run_results.values() if not v["err"] and v.get("df") is not None and not v["df"].empty)
+                    _fail_cnt = sum(1 for v in _run_results.values() if v["err"])
 
-                        # 展示已有结果
-                        _cached = st.session_state["sql_run_results"].get(_i)
-                        if _cached:
-                            if _cached["err"]:
-                                st.error(f"执行失败：{_cached['err']}")
-                            elif _cached["df"].empty:
-                                st.success("校验通过，无差异")
+                    if _executed > 0:
+                        st.markdown(
+                            f"**结果总览**：共 {_total_sql} 段 SQL ｜ 已执行 {_executed} ｜ "
+                            f"✅ 通过 {_pass_cnt} ｜ ⚠️ 有差异 {_diff_cnt} ｜ ❌ 失败 {_fail_cnt}"
+                        )
+                        _filter = st.radio(
+                            "筛选展示",
+                            ["全部", "仅通过", "仅有差异", "仅失败"],
+                            horizontal=True,
+                            key="sql_result_filter"
+                        )
+                    else:
+                        _filter = "全部"
+
+                    # 逐段展示 + 执行
+                    for _i, _sql_block in enumerate(_sql_blocks, 1):
+                        # 计算该段状态
+                        _cached_f = _run_results.get(_i)
+                        if _cached_f:
+                            if _cached_f["err"]:
+                                _status = "fail"
+                            elif _cached_f["df"].empty:
+                                _status = "pass"
                             else:
-                                st.caption(f"返回 {len(_cached['df'])} 行")
-                                st.dataframe(
-                                    _cached["df"],
-                                    use_container_width=True,
-                                    height=300
-                                )
-                                with _c_export:
-                                    _csv_data = _cached["df"].to_csv(index=False).encode("utf-8-sig")
-                                    st.download_button(
-                                        label="导出 CSV",
-                                        data=_csv_data,
-                                        file_name=f"sql_{_i:03d}_result.csv",
-                                        mime="text/csv",
-                                        use_container_width=True,
-                                        key=f"download_csv_{_i}"
-                                    )
+                                _status = "diff"
+                        else:
+                            _status = "pending"
 
-                                # ===== 逐段 AI 差异分析 =====
-                                _analysis_key = f"sql_diff_analysis_{_i}"
-                                _a_c1, _a_c2 = st.columns([3, 1])
-                                with _a_c1:
-                                    if st.button("🤖 AI 分析差异原因", key=f"analyze_diff_{_i}"):
-                                        with st.spinner("AI 分析中..."):
-                                            _diff_sample = _cached["df"].head(50).to_csv(index=False)
-                                            _analysis_content = f"""
+                        # 过滤判断
+                        if _filter == "仅通过" and _status != "pass":
+                            continue
+                        if _filter == "仅有差异" and _status != "diff":
+                            continue
+                        if _filter == "仅失败" and _status != "fail":
+                            continue
+
+                        _status_icon = {"pass": "✅", "diff": "⚠️", "fail": "❌", "pending": "⏳"}.get(_status, "")
+
+                        with st.expander(f"{_status_icon} SQL-{_i:03d}", expanded=False):
+                            # #11 SQL 语法高亮：只读展示 + 编辑切换
+                            _edit_key = f"sql_edit_{_i}"
+                            if _edit_key not in st.session_state:
+                                st.session_state[_edit_key] = _sql_block
+                            _edit_mode_key = f"sql_edit_mode_{_i}"
+                            if _edit_mode_key not in st.session_state:
+                                st.session_state[_edit_mode_key] = False
+
+                            if st.session_state[_edit_mode_key]:
+                                # 编辑模式：text_area
+                                _edited_sql = st.text_area(
+                                    "SQL（编辑中）",
+                                    key=_edit_key,
+                                    height=300,
+                                    label_visibility="collapsed"
+                                )
+                            else:
+                                # 只读模式：带语法高亮的 code block
+                                st.code(st.session_state[_edit_key], language="sql", height=300)
+                                _edited_sql = st.session_state[_edit_key]
+
+                            _c_run, _c_toggle, _c_reset, _c_export = st.columns([1.5, 1, 1, 1.5])
+                            with _c_run:
+                                if st.button("▶ 执行", key=f"run_sql_{_i}"):
+                                    with st.spinner("执行中..."):
+                                        _df_result, _err = run_single_sql(_odps_entry_frag, _edited_sql)
+                                    st.session_state["sql_run_results"][_i] = {"df": _df_result, "err": _err}
+                                    st.rerun()
+                            with _c_toggle:
+                                _toggle_label = "✏️ 编辑" if not st.session_state[_edit_mode_key] else "👁️ 只读"
+                                if st.button(_toggle_label, key=f"toggle_sql_{_i}"):
+                                    st.session_state[_edit_mode_key] = not st.session_state[_edit_mode_key]
+                                    st.rerun()
+                            with _c_reset:
+                                if st.button("🔄 恢复", key=f"reset_sql_{_i}"):
+                                    st.session_state[_edit_key] = _sql_block
+                                    st.rerun()
+
+                            # 展示已有结果
+                            _cached = st.session_state["sql_run_results"].get(_i)
+                            if _cached:
+                                if _cached["err"]:
+                                    render_error_with_fold(f"执行失败：{_cached['err']}")
+                                elif _cached["df"].empty:
+                                    st.success("校验通过，无差异")
+                                else:
+                                    st.caption(f"返回 {len(_cached['df'])} 行")
+                                    st.dataframe(
+                                        _cached["df"],
+                                        use_container_width=True,
+                                        height=300
+                                    )
+                                    with _c_export:
+                                        _csv_data = _cached["df"].to_csv(index=False).encode("utf-8-sig")
+                                        st.download_button(
+                                            label="📥 CSV",
+                                            data=_csv_data,
+                                            file_name=_ts_filename(f"sql_{_i:03d}_result", "csv"),
+                                            mime="text/csv",
+                                            use_container_width=True,
+                                            key=f"download_csv_{_i}"
+                                        )
+
+                                    # ===== 逐段 AI 差异分析 =====
+                                    _analysis_key = f"sql_diff_analysis_{_i}"
+                                    _a_c1, _a_c2 = st.columns([3, 1])
+                                    with _a_c1:
+                                        if st.button("🤖 AI 分析差异原因", key=f"analyze_diff_{_i}"):
+                                            with st.spinner("AI 分析中..."):
+                                                _diff_sample = _cached["df"].head(50).to_csv(index=False)
+                                                _analysis_content = f"""
 以下是执行的校验 SQL：
 
 ```sql
@@ -1156,44 +1332,48 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
 3. 需要进一步确认的问题
 4. 修复建议
 """
-                                            _analysis_result = call_llm(
-                                                SQL_DIFF_ANALYSIS_PROMPT,
-                                                _analysis_content
+                                                _analysis_result = call_llm(
+                                                    SQL_DIFF_ANALYSIS_PROMPT,
+                                                    _analysis_content
+                                                )
+                                                if is_llm_error(_analysis_result):
+                                                    render_error_with_fold(_analysis_result)
+                                                else:
+                                                    st.session_state[_analysis_key] = _analysis_result
+                                                    st.rerun()
+
+                                    _analysis_cached = st.session_state.get(_analysis_key, "")
+                                    if _analysis_cached:
+                                        with _a_c2:
+                                            st.download_button(
+                                                label="📥 导出",
+                                                data=_analysis_cached.encode("utf-8-sig"),
+                                                file_name=_ts_filename(f"sql_{_i:03d}_差异分析报告", "md"),
+                                                mime="text/markdown",
+                                                key=f"download_analysis_{_i}"
                                             )
-                                            if is_llm_error(_analysis_result):
-                                                st.error(_analysis_result)
-                                            else:
-                                                st.session_state[_analysis_key] = _analysis_result
-                                                st.rerun()
-
-                                _analysis_cached = st.session_state.get(_analysis_key, "")
-                                if _analysis_cached:
-                                    with _a_c2:
-                                        st.download_button(
-                                            label="📥 导出",
-                                            data=_analysis_cached.encode("utf-8-sig"),
-                                            file_name=f"sql_{_i:03d}_差异分析报告.md",
-                                            mime="text/markdown",
-                                            key=f"download_analysis_{_i}"
+                                        st.divider()
+                                        st.markdown("#### 🤖 AI 差异分析报告")
+                                        render_markdown_in_scroll_box(
+                                            title="差异分析",
+                                            markdown_text=_analysis_cached,
+                                            height=400,
+                                            expanded=True
                                         )
-                                    st.markdown("---")
-                                    st.markdown("#### 🤖 AI 差异分析报告")
-                                    render_markdown_in_scroll_box(
-                                        title="差异分析",
-                                        markdown_text=_analysis_cached,
-                                        height=400,
-                                        expanded=True
-                                    )
 
-                # 清空执行结果 — 放在折叠区，防止误触
-                with st.expander("⚠️ 危险操作（清空所有执行结果和分析报告）", expanded=False):
-                    st.warning("点击后会清空所有 SQL 的执行结果和 AI 差异分析报告，不可恢复。")
-                    if st.button("确认清空全部执行结果", key="clear_run_results"):
-                        st.session_state["sql_run_results"] = {}
-                        st.session_state["batch_diff_analysis"] = ""
-                        for _ci in range(1, len(_sql_blocks) + 1):
-                            st.session_state.pop(f"sql_diff_analysis_{_ci}", None)
-                        st.rerun()
+                    # 清空执行结果 — 放在折叠区，防止误触
+                    with st.expander("⚠️ 危险操作（清空所有执行结果和分析报告）", expanded=False):
+                        st.warning("点击后会清空所有 SQL 的执行结果和 AI 差异分析报告，不可恢复。")
+                        if st.button("确认清空全部执行结果", key="clear_run_results"):
+                            st.session_state["sql_run_results"] = {}
+                            st.session_state["batch_diff_analysis"] = ""
+                            st.session_state["_sql_batch_running"] = False
+                            st.session_state["_sql_batch_idx"] = 0
+                            for _ci in range(1, len(_sql_blocks) + 1):
+                                st.session_state.pop(f"sql_diff_analysis_{_ci}", None)
+                            st.rerun()
+
+                _sql_execution_fragment()
 
         else:
             st.info("未配置 ODPS 连接，仅支持下载 SQL 脚本手动执行。配置方法见侧边栏 ODPS 连接配置。")

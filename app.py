@@ -1246,7 +1246,11 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
 
                         with st.expander(f"{_status_icon} SQL-{_i:03d}", expanded=False):
                             # #11 SQL 语法高亮：只读展示 + 编辑切换
-                            _edit_key = f"sql_edit_{_i}"
+                            # 用版本号 key 避免 widget 创建后修改 session_state 报错
+                            _edit_ver_key = f"sql_edit_ver_{_i}"
+                            if _edit_ver_key not in st.session_state:
+                                st.session_state[_edit_ver_key] = 0
+                            _edit_key = f"sql_edit_{_i}_{st.session_state[_edit_ver_key]}"
                             if _edit_key not in st.session_state:
                                 st.session_state[_edit_key] = _sql_block
                             _edit_mode_key = f"sql_edit_mode_{_i}"
@@ -1280,7 +1284,9 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                                     st.rerun()
                             with _c_reset:
                                 if st.button("🔄 恢复", key=f"reset_sql_{_i}"):
-                                    st.session_state[_edit_key] = _sql_block
+                                    # 递增版本号 → 下次渲染用新 key → widget 重新初始化为原始值
+                                    st.session_state[_edit_ver_key] += 1
+                                    st.session_state[_edit_mode_key] = False
                                     st.rerun()
 
                             # 展示已有结果

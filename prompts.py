@@ -360,11 +360,28 @@ SQL 校验脚本要求：
    - 适用字段；
    - 是否存在待确认事项。
 6. 主键唯一性 SQL 只需输出重复主键和重复次数，不需要 JOIN 回原表取明细。
-7. 每个一致性比对 SQL 建议采用 expected / actual CTE 结构：
+7. 行数校验 SQL 必须遵守以下规则：
+   - 禁止使用 CROSS JOIN，DataWorks 不兼容。
+   - 行数校验不套用 expected/actual JOIN 结构，改用 FROM expected_cnt e, actual_cnt a（隐式逗号连接）替代。
+   - WHERE 中筛选 expected_row_cnt <> result_row_cnt，只在行数不一致时返回结果，便于自动化判定通过/失败。
+   - 示例：
+     WITH expected_cnt AS (
+         SELECT COUNT(1) AS expected_row_cnt FROM 源表加工逻辑
+     ),
+     actual_cnt AS (
+         SELECT COUNT(1) AS result_row_cnt FROM 结果表
+     )
+     SELECT
+         e.expected_row_cnt,
+         a.result_row_cnt,
+         ABS(NVL(e.expected_row_cnt, 0) - NVL(a.result_row_cnt, 0)) AS diff_cnt
+     FROM expected_cnt e, actual_cnt a
+     WHERE e.expected_row_cnt <> a.result_row_cnt;
+8. 每个一致性比对 SQL 建议采用 expected / actual CTE 结构：
    - expected：源表按需求逻辑加工后的期望结果；
    - actual：结果表实际落表结果；
    - final select：对 expected 和 actual 进行 full outer join、full join 或 left join 比对。
-8. final select 必须同时输出：
+9. final select 必须同时输出：
    - 主键字段；
    - 必要的分区字段；
    - 源表加工后的期望字段值，命名为 source_xxx 或 expected_xxx；
@@ -372,33 +389,33 @@ SQL 校验脚本要求：
    - 字段差异标识，命名为 xxx_diff_flag；
    - 差异类型，命名为 diff_type；
    - 如果字段逻辑复杂，需要输出中间计算字段，方便定位差异原因。
-9. final select 不允许只输出 count 数量。必须输出差异明细，方便定位具体哪条数据、哪个字段不一致。
-10. 如果多个简单字段合并比对，final select 中也必须分别展示每个字段的：
+10. final select 不允许只输出 count 数量。必须输出差异明细，方便定位具体哪条数据、哪个字段不一致。
+11. 如果多个简单字段合并比对，final select 中也必须分别展示每个字段的：
     - source_xxx 或 expected_xxx；
     - result_xxx 或 actual_xxx；
     - xxx_diff_flag。
-11. 如果是复杂字段单独比对，expected CTE 中必须尽量保留计算该字段所需的中间字段，例如原始金额、调整金额、退款金额、状态字段、枚举字段等。
-12. where 条件中只筛选存在差异的数据，例如：
+12. 如果是复杂字段单独比对，expected CTE 中必须尽量保留计算该字段所需的中间字段，例如原始金额、调整金额、退款金额、状态字段、枚举字段等。
+13. where 条件中只筛选存在差异的数据，例如：
     - 源表有但结果表无；
     - 结果表有但源表无；
     - 源表加工值与结果表值不一致。
-13. diff_type 建议按照以下规则输出：
+14. diff_type 建议按照以下规则输出：
     - SOURCE_ONLY：源表加工后存在，但结果表不存在；
     - RESULT_ONLY：结果表存在，但源表加工后不存在；
     - FIELD_VALUE_DIFF：主键存在但字段值不一致；
     - MULTI_FIELD_DIFF：多个字段同时不一致。
-14. 对金额、数量、比例等数值类字段，差异判断统一使用：
+15. 对金额、数量、比例等数值类字段，差异判断统一使用：
     ABS(NVL(expected_字段, 0) - NVL(result_字段, 0)) > 0.1
-15. 对字符串类字段，差异判断使用：
+16. 对字符串类字段，差异判断使用：
     NVL(expected_字段, '') <> NVL(result_字段, '')
-16. 对日期、时间字段，需根据实际字段类型选择合适的比较方式；如果无法确认类型，需要用 SQL 注释标记 TODO。
-17. 如果存在小数精度问题，可以使用 ROUND 或 ABS 差值阈值比较，优先使用 ABS 差值阈值。
-18. 如果表名、字段名、分区值已提供，请直接使用真实名称。
-19. 如果缺少必要信息，可以用 SQL 注释标注 TODO，但不要让 TODO 文字破坏 SQL 文件可执行性。
-20. 对于非 ads 层表，如果有分区信息，必须添加分区条件；如果分区字段未知，用【分区字段】占位。
-21. 对于明确"无分区"的表，不要强行添加分区条件。
-22. 如果 SQL 方言存在差异，优先使用 DataWorks / Hive / ODPS 兼容写法。
-23.若无明确要求，则都是结果表左关联源表
+17. 对日期、时间字段，需根据实际字段类型选择合适的比较方式；如果无法确认类型，需要用 SQL 注释标记 TODO。
+18. 如果存在小数精度问题，可以使用 ROUND 或 ABS 差值阈值比较，优先使用 ABS 差值阈值。
+19. 如果表名、字段名、分区值已提供，请直接使用真实名称。
+20. 如果缺少必要信息，可以用 SQL 注释标注 TODO，但不要让 TODO 文字破坏 SQL 文件可执行性。
+21. 对于非 ads 层表，如果有分区信息，必须添加分区条件；如果分区字段未知，用【分区字段】占位。
+22. 对于明确"无分区"的表，不要强行添加分区条件。
+23. 如果 SQL 方言存在差异，优先使用 DataWorks / Hive / ODPS 兼容写法。
+24. 若无明确要求，则都是结果表左关联源表
 
 SQL 示例格式如下，生成时请参考该结构，但必须使用用户提供的真实表名和字段名：
 

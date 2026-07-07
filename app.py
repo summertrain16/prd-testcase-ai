@@ -80,20 +80,22 @@ def _build_session_data() -> dict:
     import json as _json
 
     # 表结构 + 分区信息序列化为 JSON
+    # 注意：保存到 ODPS 前把反斜杠双倍化，防止 MaxCompute SQL 把 \n 解析成裸换行符导致 JSON 解析失败
+    _bs = chr(92)  # backslash character
     _result_schema_json = _json.dumps({
         "table_schema": st.session_state.get("result_table_schema", ""),
         "items": st.session_state.get("result_schema_items", []),
-    }, ensure_ascii=False)
+    }, ensure_ascii=False).replace(_bs, _bs + _bs)
     _source_schema_json = _json.dumps({
         "table_schema": st.session_state.get("source_table_schema", ""),
         "items": st.session_state.get("source_schema_items", []),
-    }, ensure_ascii=False)
+    }, ensure_ascii=False).replace(_bs, _bs + _bs)
 
     # 待确认点序列化
     _pending_points_json = _json.dumps(
         st.session_state.get("pending_points_rows", []),
         ensure_ascii=False
-    )
+    ).replace(_bs, _bs + _bs)
 
     # SQL 执行结果序列化 — 只存状态摘要，不存 DataFrame
     _raw_sql_results = st.session_state.get("sql_run_results", {})
@@ -122,7 +124,7 @@ def _build_session_data() -> dict:
             "diff_rows": _diff_rows,
             "error": _error_preview,
         }
-    _sql_results_json = _json.dumps(_sql_status_summary, ensure_ascii=False)
+    _sql_results_json = _json.dumps(_sql_status_summary, ensure_ascii=False).replace(_bs, _bs + _bs)
 
     return {
         "session_id": st.session_state.get("current_session_id", ""),
@@ -188,33 +190,35 @@ def _load_session_to_state(detail: dict):
     st.session_state["test_case_result"] = detail.get("test_cases", "")
     st.session_state["session_create_time"] = detail.get("create_time", "")
 
-    # 解析 JSON 字段
+    # 解析 JSON 字段（strict=False 兼容 MaxCompute 可能把 \n 解析成裸换行符的情况）
     try:
-        _rs = _json.loads(detail.get("result_schema", "{}"))
+        _rs = _json.loads(detail.get("result_schema", "{}") or "{}", strict=False)
         st.session_state["result_table_schema"] = _rs.get("table_schema", "")
         st.session_state["result_schema_items"] = _rs.get("items", [])
-    except Exception:
+    except Exception as _e:
         st.session_state["result_table_schema"] = ""
         st.session_state["result_schema_items"] = []
+        st.error(f"结果表结构解析失败：{_e}")
 
     try:
-        _ss = _json.loads(detail.get("source_schema", "{}"))
+        _ss = _json.loads(detail.get("source_schema", "{}") or "{}", strict=False)
         st.session_state["source_table_schema"] = _ss.get("table_schema", "")
         st.session_state["source_schema_items"] = _ss.get("items", [])
-    except Exception:
+    except Exception as _e:
         st.session_state["source_table_schema"] = ""
         st.session_state["source_schema_items"] = []
+        st.error(f"源表结构解析失败：{_e}")
 
     try:
         st.session_state["pending_points_rows"] = _json.loads(
-            detail.get("pending_points", "[]")
+            detail.get("pending_points", "[]") or "[]", strict=False
         )
     except Exception:
         st.session_state["pending_points_rows"] = []
 
     try:
         st.session_state["sql_run_results"] = _json.loads(
-            detail.get("sql_results", "{}")
+            detail.get("sql_results", "{}") or "{}", strict=False
         )
     except Exception:
         st.session_state["sql_run_results"] = {}

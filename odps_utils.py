@@ -348,7 +348,7 @@ def _escape_sql_string(value: str) -> str:
 
 
 def save_session_to_odps(odps_entry, session_data: dict, is_new_version: bool = False):
-    """保存会话到 ODPS 表。
+    """保存会话到 ODPS 表（用 INSERT OVERWRITE 替代 UPDATE/DELETE）。
 
     参数：
         odps_entry: ODPS 连接对象
@@ -360,8 +360,8 @@ def save_session_to_odps(odps_entry, session_data: dict, is_new_version: bool = 
             - pending_answers, pending_history, ignored_pending_points
             - final_analysis, test_cases
             - sql_results (JSON 字符串)
-        is_new_version: True=新建版本(INSERT+旧记录is_latest=false)，
-                        False=更新当前最新版本(DELETE+INSERT)
+        is_new_version: True=新建版本(旧记录is_latest置false+新记录)，
+                        False=更新当前最新版本(删旧最新+插新)
 
     返回：
         (是否成功, 错误信息)
@@ -375,15 +375,17 @@ def save_session_to_odps(odps_entry, session_data: dict, is_new_version: bool = 
 
     _now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    # 所有字段名
+    _cols = [
+        "session_id", "prd_name", "version", "is_latest", "current_step",
+        "prd_text", "meeting_notes", "result_schema", "source_schema", "dev_code",
+        "draft_analysis", "pending_points", "pending_answers", "pending_history",
+        "ignored_pending_points", "final_analysis", "test_cases", "sql_results",
+        "create_time", "update_time"
+    ]
+
     try:
         if is_new_version:
-            # 旧记录 is_latest 置 false
-            _sql_update_old = (
-                f"UPDATE {SESSION_TABLE} SET is_latest = false "
-                f"WHERE session_id = '{_sid}' AND is_latest = true"
-            )
-            odps_entry.execute_sql(_sql_update_old)
-
             # 查当前最大版本号
             _sql_max_ver = (
                 f"SELECT MAX(version) AS max_v FROM {SESSION_TABLE} "
@@ -396,20 +398,39 @@ def save_session_to_odps(odps_entry, session_data: dict, is_new_version: bool = 
                     _max_ver = _rec[0] if _rec[0] else 0
                     break
             _new_ver = int(_max_ver) + 1
-            _is_latest = True
             _create_time = _now
-        else:
-            # 更新当前最新版本：先删再插
-            _sql_del = (
-                f"DELETE FROM {SESSION_TABLE} "
-                f"WHERE session_id = '{_sid}' AND is_latest = true"
-            )
-            odps_entry.execute_sql(_sql_del)
 
+            # INSERT OVERWRITE：旧记录 is_latest 全置 false（匹配 session_id 的），
+            # 其他记录原样保留，最后 UNION ALL 新记录
+            _case_cols = ", ".join([
+                "session_id", "prd_name",
+                "CASE WHEN session_id = '{}' THEN false ELSE is_latest END AS is_latest".format(_sid),
+                "version", "current_step", "prd_text", "meeting_notes",
+                "result_schema", "source_schema", "dev_code",
+                "draft_analysis", "pending_points", "pending_answers",
+                "pending_history", "ignored_pending_points",
+                "final_analysis", "test_cases", "sql_results",
+                "create_time", "update_time"
+            ])
+
+            _vals = _build_values_clause(session_data, _new_ver, True, _create_time, _now)
+
+            _sql_overwrite = (
+                f"INSERT OVERWRITE TABLE {SESSION_TABLE} "
+                f"SELECT {_case_cols} FROM {SESSION_TABLE} "
+                f"UNION ALL "
+                f"SELECT {_vals}"
+            )
+            odps_entry.execute_sql(_sql_overwrite)
+
+            return True, f"保存成功（版本 {_new_ver}）"
+
+        else:
+            # 更新当前最新版本：删旧最新记录 + 插新
             # 查该 session 的 version 号
             _sql_ver = (
                 f"SELECT MAX(version) AS max_v FROM {SESSION_TABLE} "
-                f"WHERE session_id = '{_sid}'"
+                f"WHERE session_id = '{_sid}' AND is_latest = true"
             )
             _instance = odps_entry.execute_sql(_sql_ver)
             _new_ver = 1
@@ -417,54 +438,61 @@ def save_session_to_odps(odps_entry, session_data: dict, is_new_version: bool = 
                 for _rec in _r:
                     _new_ver = int(_rec[0]) if _rec[0] else 1
                     break
-            _is_latest = True
             _create_time = session_data.get("create_time", _now)
 
-        # INSERT 新记录
-        _cols = [
-            "session_id", "prd_name", "version", "is_latest", "current_step",
-            "prd_text", "meeting_notes", "result_schema", "source_schema", "dev_code",
-            "draft_analysis", "pending_points", "pending_answers", "pending_history",
-            "ignored_pending_points", "final_analysis", "test_cases", "sql_results",
-            "create_time", "update_time"
-        ]
+            _vals = _build_values_clause(session_data, _new_ver, True, _create_time, _now)
 
-        _vals = [
-            _escape_sql_string(session_data.get("session_id", "")),
-            _escape_sql_string(session_data.get("prd_name", "")),
-            str(_new_ver),
-            "true" if _is_latest else "false",
-            _escape_sql_string(session_data.get("current_step", "")),
-            _escape_sql_string(session_data.get("prd_text", "")),
-            _escape_sql_string(session_data.get("meeting_notes", "")),
-            _escape_sql_string(session_data.get("result_schema", "")),
-            _escape_sql_string(session_data.get("source_schema", "")),
-            _escape_sql_string(session_data.get("dev_code", "")),
-            _escape_sql_string(session_data.get("draft_analysis", "")),
-            _escape_sql_string(session_data.get("pending_points", "")),
-            _escape_sql_string(session_data.get("pending_answers", "")),
-            _escape_sql_string(session_data.get("pending_history", "")),
-            _escape_sql_string(session_data.get("ignored_pending_points", "")),
-            _escape_sql_string(session_data.get("final_analysis", "")),
-            _escape_sql_string(session_data.get("test_cases", "")),
-            _escape_sql_string(session_data.get("sql_results", "")),
-            _escape_sql_string(_create_time),
-            _escape_sql_string(_now),
-        ]
+            # INSERT OVERWRITE：保留除当前 is_latest 外的所有记录 + 新记录
+            _all_cols = ", ".join(_cols)
+            _sql_overwrite = (
+                f"INSERT OVERWRITE TABLE {SESSION_TABLE} "
+                f"SELECT {_all_cols} FROM {SESSION_TABLE} "
+                f"WHERE NOT (session_id = '{_sid}' AND is_latest = true) "
+                f"UNION ALL "
+                f"SELECT {_vals}"
+            )
+            odps_entry.execute_sql(_sql_overwrite)
 
-        _col_list = ", ".join(_cols)
-        _val_list = ", ".join(f"'{v}'" for v in _vals)
-
-        _sql_insert = (
-            f"INSERT INTO {SESSION_TABLE} ({_col_list}) "
-            f"VALUES ({_val_list})"
-        )
-        odps_entry.execute_sql(_sql_insert)
-
-        return True, f"保存成功（版本 {_new_ver}）"
+            return True, f"保存成功（版本 {_new_ver}）"
 
     except Exception as e:
         return False, f"保存失败：{e}"
+
+
+def _build_values_clause(session_data: dict, version: int, is_latest: bool, create_time: str, update_time: str) -> str:
+    """构造 INSERT 用的 VALUES 子句（SELECT ... 形式，每列用引号包裹）。"""
+    _vals = [
+        _escape_sql_string(session_data.get("session_id", "")),
+        _escape_sql_string(session_data.get("prd_name", "")),
+        str(version),
+        "true" if is_latest else "false",
+        _escape_sql_string(session_data.get("current_step", "")),
+        _escape_sql_string(session_data.get("prd_text", "")),
+        _escape_sql_string(session_data.get("meeting_notes", "")),
+        _escape_sql_string(session_data.get("result_schema", "")),
+        _escape_sql_string(session_data.get("source_schema", "")),
+        _escape_sql_string(session_data.get("dev_code", "")),
+        _escape_sql_string(session_data.get("draft_analysis", "")),
+        _escape_sql_string(session_data.get("pending_points", "")),
+        _escape_sql_string(session_data.get("pending_answers", "")),
+        _escape_sql_string(session_data.get("pending_history", "")),
+        _escape_sql_string(session_data.get("ignored_pending_points", "")),
+        _escape_sql_string(session_data.get("final_analysis", "")),
+        _escape_sql_string(session_data.get("test_cases", "")),
+        _escape_sql_string(session_data.get("sql_results", "")),
+        _escape_sql_string(create_time),
+        _escape_sql_string(update_time),
+    ]
+    # 布尔和数字不加引号
+    _quoted = []
+    for i, v in enumerate(_vals):
+        if i in (2,):  # version 是数字
+            _quoted.append(v)
+        elif i in (3,):  # is_latest 是布尔
+            _quoted.append(v)
+        else:
+            _quoted.append(f"'{v}'")
+    return ", ".join(_quoted)
 
 
 def load_session_list(odps_entry, limit=50):
@@ -610,18 +638,26 @@ def delete_session(odps_entry, session_id, version=None):
         return False, "session_id 为空"
 
     try:
+        _all_cols = (
+            "session_id, prd_name, version, is_latest, current_step, "
+            "prd_text, meeting_notes, result_schema, source_schema, dev_code, "
+            "draft_analysis, pending_points, pending_answers, pending_history, "
+            "ignored_pending_points, final_analysis, test_cases, sql_results, "
+            "create_time, update_time"
+        )
         if version:
             _sql = (
-                f"DELETE FROM {SESSION_TABLE} "
-                f"WHERE session_id = '{_sid}' AND version = {int(version)}"
+                f"INSERT OVERWRITE TABLE {SESSION_TABLE} "
+                f"SELECT {_all_cols} FROM {SESSION_TABLE} "
+                f"WHERE NOT (session_id = '{_sid}' AND version = {int(version)})"
             )
         else:
             _sql = (
-                f"DELETE FROM {SESSION_TABLE} "
-                f"WHERE session_id = '{_sid}'"
+                f"INSERT OVERWRITE TABLE {SESSION_TABLE} "
+                f"SELECT {_all_cols} FROM {SESSION_TABLE} "
+                f"WHERE session_id <> '{_sid}'"
             )
         odps_entry.execute_sql(_sql)
         return True, "删除成功"
     except Exception as e:
         return False, f"删除失败：{e}"
-        

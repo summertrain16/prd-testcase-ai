@@ -14,7 +14,6 @@ PRD 测试用例生成工具 — 主入口文件
 
 import os
 import io
-import hashlib
 from datetime import datetime
 
 import pandas as pd
@@ -70,18 +69,6 @@ def _ts_filename(base: str, ext: str) -> str:
     """生成带时间戳的文件名，避免多次下载覆盖。"""
     _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{base}_{_ts}.{ext}"
-
-
-def _materials_hash(materials: dict) -> str:
-    """计算输入材料的 hash，用于判断是否需要重新调用 LLM。"""
-    _raw = "|".join([
-        materials.get("prd_text", ""),
-        materials.get("meeting_notes", ""),
-        materials.get("result_table_schema", ""),
-        materials.get("source_table_schema", ""),
-        materials.get("dev_code", ""),
-    ])
-    return hashlib.md5(_raw.encode("utf-8")).hexdigest()
 
 
 # =========================
@@ -484,28 +471,8 @@ if st.session_state["current_step"] == STEP_INPUT:
         if not materials["prd_text"].strip():
             st.warning("请先上传或粘贴 PRD 内容。")
         else:
-            # #6：缓存判断 — 输入材料没变就不重复调 LLM
-            _current_hash = _materials_hash(materials)
-            _cached_hash = st.session_state.get("_draft_materials_hash", "")
-            _cached_result = st.session_state.get("prd_draft_analysis_result", "")
-
-            if _current_hash == _cached_hash and _cached_result:
-                st.info("输入材料未变化，使用上次的分析结果。")
-                st.session_state["prd_current_analysis_result"] = _cached_result
-                st.session_state["pending_points_rows"] = parse_pending_points_from_markdown(_cached_result)
-                st.session_state["pending_points_editor_version"] += 1
-                st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
-                    st.session_state["pending_points_rows"]
-                )
-                st.session_state["pending_analysis_round"] = 1
-                st.session_state["pending_confirm_history"] = ""
-                st.session_state["ignore_remaining_pending_points"] = False
-                st.session_state["ignored_pending_points_text"] = ""
-                st.session_state["prd_final_analysis_result"] = ""
-                st.session_state["test_case_result"] = ""
-            else:
-                with st.spinner("正在分析 PRD..."):
-                    user_content = f"""
+            with st.spinner("正在分析 PRD..."):
+                user_content = f"""
 以下是 PRD 原文：
 
 {materials["prd_text"]}
@@ -529,36 +496,35 @@ if st.session_state["current_step"] == STEP_INPUT:
 请基于以上全部信息进行第一轮需求提炼分析。
 """
 
-                    draft_result = call_llm(
-                        PRD_DRAFT_ANALYSIS_PROMPT,
-                        user_content
-                    )
-                    if is_llm_error(draft_result):
-                        render_error_with_fold(draft_result)
-                        st.stop()
+                draft_result = call_llm(
+                    PRD_DRAFT_ANALYSIS_PROMPT,
+                    user_content
+                )
+                if is_llm_error(draft_result):
+                    render_error_with_fold(draft_result)
+                    st.stop()
 
-                    st.session_state["prd_draft_analysis_result"] = draft_result
-                    st.session_state["prd_current_analysis_result"] = draft_result
-                    st.session_state["_draft_materials_hash"] = _current_hash
+                st.session_state["prd_draft_analysis_result"] = draft_result
+                st.session_state["prd_current_analysis_result"] = draft_result
 
-                    st.session_state["pending_points_rows"] = parse_pending_points_from_markdown(
-                        draft_result
-                    )
+                st.session_state["pending_points_rows"] = parse_pending_points_from_markdown(
+                    draft_result
+                )
 
-                    st.session_state["pending_points_editor_version"] += 1
+                st.session_state["pending_points_editor_version"] += 1
 
-                    st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
-                        st.session_state["pending_points_rows"]
-                    )
+                st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
+                    st.session_state["pending_points_rows"]
+                )
 
-                    st.session_state["pending_analysis_round"] = 1
-                    st.session_state["pending_confirm_history"] = ""
+                st.session_state["pending_analysis_round"] = 1
+                st.session_state["pending_confirm_history"] = ""
 
-                    st.session_state["ignore_remaining_pending_points"] = False
-                    st.session_state["ignored_pending_points_text"] = ""
+                st.session_state["ignore_remaining_pending_points"] = False
+                st.session_state["ignored_pending_points_text"] = ""
 
-                    st.session_state["prd_final_analysis_result"] = ""
-                    st.session_state["test_case_result"] = ""
+                st.session_state["prd_final_analysis_result"] = ""
+                st.session_state["test_case_result"] = ""
 
             go_to_step(STEP_PENDING)
 
@@ -1246,7 +1212,11 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
 
                         with st.expander(f"{_status_icon} SQL-{_i:03d}", expanded=False):
                             # #11 SQL 语法高亮：只读展示 + 编辑切换
-                            _edit_key = f"sql_edit_{_i}"
+                            # 用版本号 key 避免 widget 创建后修改 session_state 报错
+                            _edit_ver_key = f"sql_edit_ver_{_i}"
+                            if _edit_ver_key not in st.session_state:
+                                st.session_state[_edit_ver_key] = 0
+                            _edit_key = f"sql_edit_{_i}_{st.session_state[_edit_ver_key]}"
                             if _edit_key not in st.session_state:
                                 st.session_state[_edit_key] = _sql_block
                             _edit_mode_key = f"sql_edit_mode_{_i}"
@@ -1280,7 +1250,9 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                                     st.rerun()
                             with _c_reset:
                                 if st.button("🔄 恢复", key=f"reset_sql_{_i}"):
-                                    st.session_state[_edit_key] = _sql_block
+                                    # 递增版本号 → 下次渲染用新 key → widget 重新初始化为原始值
+                                    st.session_state[_edit_ver_key] += 1
+                                    st.session_state[_edit_mode_key] = False
                                     st.rerun()
 
                             # 展示已有结果

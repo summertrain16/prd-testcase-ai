@@ -34,9 +34,9 @@ def call_llm(system_prompt: str, user_content: str) -> str:
             base_url=base_url
         )
 
-        response = llm_client.chat.completions.create(
-            model=model,
-            messages=[
+        _kwargs = {
+            "model": model,
+            "messages": [
                 {
                     "role": "system",
                     "content": system_prompt
@@ -46,8 +46,15 @@ def call_llm(system_prompt: str, user_content: str) -> str:
                     "content": user_content
                 }
             ],
-            temperature=0.2
-        )
+        }
+
+        # 部分推理模型（o1/o3/o4/gpt-5/gpt-4.1）不支持 temperature 参数，
+        # 传了会报 400: temperature is deprecated for this model
+        _no_temp_models = ("o1", "o3", "o4", "gpt-5", "gpt-4.1")
+        if not any(model.lower().startswith(m) for m in _no_temp_models):
+            _kwargs["temperature"] = 0.2
+
+        response = llm_client.chat.completions.create(**_kwargs)
 
         if isinstance(response, str):
             if response.strip().lower().startswith("<!doctype html") or "<html" in response.lower():

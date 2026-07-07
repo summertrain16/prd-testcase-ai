@@ -52,7 +52,11 @@ from ui_components import (
     go_to_step,
     get_materials_from_state,
 )
-from odps_utils import get_odps_entry, run_single_sql, test_odps_connection
+from odps_utils import (
+    get_odps_entry, run_single_sql, test_odps_connection,
+    save_session_to_odps, load_session_list, load_session_detail,
+    load_session_versions, delete_session, _sanitize_prd_name,
+)
 
 # =========================
 # 1. 加载环境变量（仅作为默认值，实际从侧边栏 session_state 读取）
@@ -69,6 +73,166 @@ def _ts_filename(base: str, ext: str) -> str:
     """生成带时间戳的文件名，避免多次下载覆盖。"""
     _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{base}_{_ts}.{ext}"
+
+
+def _build_session_data() -> dict:
+    """从当前 session_state 组装会话数据 dict，用于保存到 ODPS。"""
+    import json as _json
+
+    # 表结构 + 分区信息序列化为 JSON
+    _result_schema_json = _json.dumps({
+        "table_schema": st.session_state.get("result_table_schema", ""),
+        "items": st.session_state.get("result_schema_items", []),
+    }, ensure_ascii=False)
+    _source_schema_json = _json.dumps({
+        "table_schema": st.session_state.get("source_table_schema", ""),
+        "items": st.session_state.get("source_schema_items", []),
+    }, ensure_ascii=False)
+
+    # 待确认点序列化
+    _pending_points_json = _json.dumps(
+        st.session_state.get("pending_points_rows", []),
+        ensure_ascii=False
+    )
+
+    # SQL 执行结果序列化 — 只存状态摘要，不存 DataFrame
+    _raw_sql_results = st.session_state.get("sql_run_results", {})
+    _sql_status_summary = {}
+    for _k, _v in _raw_sql_results.items():
+        _df = _v.get("df")
+        _err = _v.get("err")
+        if _err:
+            _status = "fail"
+            _diff_rows = 0
+            _error_preview = str(_err)[:200]
+        elif _df is not None and not _df.empty:
+            _status = "diff"
+            _diff_rows = len(_df)
+            _error_preview = ""
+        elif _df is not None and _df.empty:
+            _status = "pass"
+            _diff_rows = 0
+            _error_preview = ""
+        else:
+            _status = "pending"
+            _diff_rows = 0
+            _error_preview = ""
+        _sql_status_summary[str(_k)] = {
+            "status": _status,
+            "diff_rows": _diff_rows,
+            "error": _error_preview,
+        }
+    _sql_results_json = _json.dumps(_sql_status_summary, ensure_ascii=False)
+
+    return {
+        "session_id": st.session_state.get("current_session_id", ""),
+        "prd_name": st.session_state.get("current_prd_name", ""),
+        "current_step": st.session_state.get("current_step", ""),
+        "prd_text": st.session_state.get("prd_text", ""),
+        "meeting_notes": st.session_state.get("meeting_notes", ""),
+        "result_schema": _result_schema_json,
+        "source_schema": _source_schema_json,
+        "dev_code": st.session_state.get("dev_code", ""),
+        "draft_analysis": st.session_state.get("prd_current_analysis_result", ""),
+        "pending_points": _pending_points_json,
+        "pending_answers": st.session_state.get("prd_pending_answers", ""),
+        "pending_history": st.session_state.get("pending_confirm_history", ""),
+        "ignored_pending_points": st.session_state.get("ignored_pending_points_text", ""),
+        "final_analysis": st.session_state.get("prd_final_analysis_result", ""),
+        "test_cases": st.session_state.get("test_case_result", ""),
+        "sql_results": _sql_results_json,
+        "create_time": st.session_state.get("session_create_time", ""),
+    }
+
+
+def _do_save(is_new_version: bool = False):
+    """触发保存到 ODPS，失败提示但不阻断流程。"""
+    _odps = get_odps_entry(
+        st.session_state.get("odps_ak", "").strip(),
+        st.session_state.get("odps_sk", "").strip(),
+        st.session_state.get("odps_project", "").strip(),
+        st.session_state.get("odps_endpoint", "").strip(),
+    )
+    if _odps is None:
+        return
+
+    _data = _build_session_data()
+    if not _data["session_id"]:
+        return
+
+    _ok, _msg = save_session_to_odps(_odps, _data, is_new_version=is_new_version)
+    if _ok:
+        st.toast(f"✅ {_msg}")
+    else:
+        st.warning(f"⚠️ {_msg}")
+
+
+def _load_session_to_state(detail: dict):
+    """从 ODPS 加载的详情 dict 回填到 session_state。"""
+    import json as _json
+
+    st.session_state["current_session_id"] = detail.get("session_id", "")
+    st.session_state["current_prd_name"] = detail.get("prd_name", "")
+    st.session_state["current_version"] = detail.get("version", 1)
+    st.session_state["current_step"] = detail.get("current_step", "")
+    st.session_state["prd_text"] = detail.get("prd_text", "")
+    st.session_state["prd_manual_text"] = ""  # PRD 原文已含手动补充
+    st.session_state["uploaded_prd_text"] = detail.get("prd_text", "")
+    st.session_state["meeting_notes"] = detail.get("meeting_notes", "")
+    st.session_state["dev_code"] = detail.get("dev_code", "")
+    st.session_state["prd_current_analysis_result"] = detail.get("draft_analysis", "")
+    st.session_state["prd_pending_answers"] = detail.get("pending_answers", "")
+    st.session_state["pending_confirm_history"] = detail.get("pending_history", "")
+    st.session_state["ignored_pending_points_text"] = detail.get("ignored_pending_points", "")
+    st.session_state["prd_final_analysis_result"] = detail.get("final_analysis", "")
+    st.session_state["test_case_result"] = detail.get("test_cases", "")
+    st.session_state["session_create_time"] = detail.get("create_time", "")
+
+    # 解析 JSON 字段
+    try:
+        _rs = _json.loads(detail.get("result_schema", "{}"))
+        st.session_state["result_table_schema"] = _rs.get("table_schema", "")
+        st.session_state["result_schema_items"] = _rs.get("items", [])
+    except Exception:
+        st.session_state["result_table_schema"] = ""
+        st.session_state["result_schema_items"] = []
+
+    try:
+        _ss = _json.loads(detail.get("source_schema", "{}"))
+        st.session_state["source_table_schema"] = _ss.get("table_schema", "")
+        st.session_state["source_schema_items"] = _ss.get("items", [])
+    except Exception:
+        st.session_state["source_table_schema"] = ""
+        st.session_state["source_schema_items"] = []
+
+    try:
+        st.session_state["pending_points_rows"] = _json.loads(
+            detail.get("pending_points", "[]")
+        )
+    except Exception:
+        st.session_state["pending_points_rows"] = []
+
+    try:
+        st.session_state["sql_run_results"] = _json.loads(
+            detail.get("sql_results", "{}")
+        )
+    except Exception:
+        st.session_state["sql_run_results"] = {}
+
+    # 版本号 +1 触发 widget 重初始化
+    st.session_state["pending_points_editor_version"] += 1
+    st.session_state["result_schema_uploader_version"] += 1
+    st.session_state["source_schema_uploader_version"] += 1
+    st.session_state["prd_file_uploader_version"] += 1
+
+    # 恢复步骤状态
+    if detail.get("ignored_pending_points", "").strip():
+        st.session_state["ignore_remaining_pending_points"] = True
+    else:
+        st.session_state["ignore_remaining_pending_points"] = False
+
+    st.session_state["pending_analysis_round"] = 1 if detail.get("draft_analysis", "") else 0
+    st.session_state["session_loaded_from_history"] = True
 
 
 # =========================
@@ -164,6 +328,24 @@ material_state_defaults = {
 for key, default_value in material_state_defaults.items():
     if key not in st.session_state:
         st.session_state[key] = default_value
+
+# ===== 历史记录持久化相关 session_state =====
+if "prd_name_mode" not in st.session_state:
+    st.session_state["prd_name_mode"] = "new"
+if "current_session_id" not in st.session_state:
+    st.session_state["current_session_id"] = ""
+if "current_version" not in st.session_state:
+    st.session_state["current_version"] = 0
+if "session_history_list" not in st.session_state:
+    st.session_state["session_history_list"] = []
+if "session_loaded_from_history" not in st.session_state:
+    st.session_state["session_loaded_from_history"] = False
+if "current_prd_name" not in st.session_state:
+    st.session_state["current_prd_name"] = ""
+if "session_create_time" not in st.session_state:
+    st.session_state["session_create_time"] = ""
+if "sql_run_results" not in st.session_state:
+    st.session_state["sql_run_results"] = {}
 
 
 # =========================
@@ -280,8 +462,63 @@ odps_sk = "你的AccessKey Secret"
 """)
 
     st.divider()
+
+    # ===== 历史记录区 =====
+    with st.expander("📂 历史记录", expanded=False):
+        _odps_entry_hist = get_odps_entry(
+            st.session_state.get("odps_ak", "").strip(),
+            st.session_state.get("odps_sk", "").strip(),
+            st.session_state.get("odps_project", "").strip(),
+            st.session_state.get("odps_endpoint", "").strip(),
+        )
+
+        if _odps_entry_hist:
+            _c_refresh_hist, _c_count = st.columns([1, 1])
+            with _c_refresh_hist:
+                if st.button("🔄 刷新列表", key="refresh_history_btn", use_container_width=True):
+                    st.session_state["session_history_list"] = load_session_list(_odps_entry_hist)
+                    st.rerun()
+
+            _hist_list = st.session_state.get("session_history_list", [])
+            with _c_count:
+                st.caption(f"共 {len(_hist_list)} 条")
+
+            if not _hist_list:
+                st.caption("暂无历史记录")
+            else:
+                for _idx_h, _item in enumerate(_hist_list):
+                    _c_name, _c_load, _c_del = st.columns([3, 1, 1])
+                    with _c_name:
+                        st.markdown(
+                            f"**{_item['prd_name']}**  \n"
+                            f"<span style='font-size:0.75em;color:var(--color-text-secondary);'>"
+                            f"v{_item['version']} · {_item['update_time']}</span>",
+                            unsafe_allow_html=True
+                        )
+                    with _c_load:
+                        if st.button("📂", key=f"load_hist_{_idx_h}", help="加载此记录"):
+                            _detail = load_session_detail(_odps_entry_hist, _item["session_id"])
+                            if _detail:
+                                _load_session_to_state(_detail)
+                                st.success(f"已加载「{_item['prd_name']}」v{_detail['version']}")
+                                st.rerun()
+                            else:
+                                st.error("加载失败")
+                    with _c_del:
+                        if st.button("🗑️", key=f"del_hist_{_idx_h}", help="删除此记录"):
+                            _ok_del, _msg_del = delete_session(_odps_entry_hist, _item["session_id"])
+                            if _ok_del:
+                                st.session_state["session_history_list"] = load_session_list(_odps_entry_hist)
+                                st.success("已删除")
+                                st.rerun()
+                            else:
+                                st.error(_msg_del)
+        else:
+            st.caption("请先配置 ODPS 连接")
+
+    st.divider()
     # #5：刷新提示
-    st.caption("⚠️ 刷新页面会丢失所有数据（PRD、表结构、分析结果等），请谨慎操作。")
+    st.caption("⚠️ 刷新页面会丢失当前会话的临时编辑，历史记录已自动保存到 ODPS。")
 
     if st.button("清空全部结果", use_container_width=True):
         st.session_state["prd_draft_analysis_result"] = ""
@@ -316,6 +553,13 @@ odps_sk = "你的AccessKey Secret"
         st.session_state["batch_diff_analysis"] = ""
         st.session_state["_sql_batch_running"] = False
         st.session_state["_sql_batch_idx"] = 0
+        # 清空历史记录相关 state
+        st.session_state["current_session_id"] = ""
+        st.session_state["current_prd_name"] = ""
+        st.session_state["current_version"] = 0
+        st.session_state["session_loaded_from_history"] = False
+        st.session_state["session_create_time"] = ""
+        st.session_state["prd_name_mode"] = "new"
         # 清空 ODPS 连接缓存（下次用新配置重建）
         get_odps_entry.clear()
         st.rerun()
@@ -331,6 +575,93 @@ if st.session_state["current_step"] == STEP_INPUT:
         desc="上传或粘贴 PRD，补充表结构和参考信息，一键生成初版需求提炼。",
         icon=""
     )
+
+    # =========================
+    # PRD 名称选择区（历史记录持久化）
+    # =========================
+
+    _odps_entry_input = get_odps_entry(
+        st.session_state.get("odps_ak", "").strip(),
+        st.session_state.get("odps_sk", "").strip(),
+        st.session_state.get("odps_project", "").strip(),
+        st.session_state.get("odps_endpoint", "").strip(),
+    )
+
+    with st.container():
+        st.markdown("##### 📌 PRD 名称")
+        _name_mode = st.radio(
+            "选择模式",
+            ["新建 PRD", "选择已有 PRD"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="prd_name_mode_radio",
+        )
+
+        if _name_mode == "选择已有 PRD":
+            st.session_state["prd_name_mode"] = "existing"
+
+            # 加载历史记录列表
+            if _odps_entry_input:
+                if not st.session_state.get("session_history_list"):
+                    st.session_state["session_history_list"] = load_session_list(_odps_entry_input)
+            else:
+                st.session_state["session_history_list"] = []
+
+            _history = st.session_state.get("session_history_list", [])
+
+            if not _history:
+                st.info("暂无历史记录，请选择「新建 PRD」。")
+                st.session_state["current_prd_name"] = ""
+            else:
+                # 构造下拉选项：名称 + 版本 + 时间
+                _options = [
+                    f"{h['prd_name']}  v{h['version']}  {h['update_time']}"
+                    for h in _history
+                ]
+                _sel_idx = st.selectbox(
+                    "选择已有 PRD",
+                    range(len(_options)),
+                    format_func=lambda i: _options[i],
+                    key="existing_prd_select",
+                )
+
+                if _sel_idx is not None:
+                    _selected = _history[_sel_idx]
+                    _sel_name = _selected["prd_name"]
+                    _sel_ver = _selected["version"]
+                    st.session_state["current_prd_name"] = _sel_name
+                    st.session_state["current_session_id"] = _sel_name
+                    st.caption(f"💡 将作为「{_sel_name}」的第 {_sel_ver + 1} 次分析（版本 v{_sel_ver} → v{_sel_ver + 1}）")
+
+                    # 自动加载历史材料
+                    _load_btn = st.button("📂 加载该 PRD 的历史材料", key="load_existing_prd_btn")
+                    if _load_btn:
+                        _detail = load_session_detail(_odps_entry_input, _sel_name)
+                        if _detail:
+                            _load_session_to_state(_detail)
+                            st.success(f"已加载「{_sel_name}」v{_detail['version']} 的历史材料，可在各 Tab 中查看和修改。")
+                            st.rerun()
+                        else:
+                            st.error("加载失败，请检查 ODPS 连接。")
+        else:
+            st.session_state["prd_name_mode"] = "new"
+            _new_name = st.text_input(
+                "PRD 名称",
+                key="new_prd_name_input",
+                placeholder="请输入 PRD 名称，例如：订单退款金额校验 PRD",
+                help="名称用于标识本次分析，限 50 字符。如果名称和已有记录重复，将作为该 PRD 的重新分析。",
+            )
+            _clean_name = _sanitize_prd_name(_new_name) if _new_name else ""
+            st.session_state["current_prd_name"] = _clean_name
+            st.session_state["current_session_id"] = _clean_name
+
+            # 检查名称是否和已有记录重复
+            if _clean_name and _odps_entry_input:
+                _existing = load_session_detail(_odps_entry_input, _clean_name)
+                if _existing:
+                    st.caption(f"💡 名称「{_clean_name}」已存在（当前 v{_existing['version']}），本次将作为版本 v{_existing['version'] + 1} 重新分析。")
+
+    st.divider()
 
     # =========================
     # Tab 布局：PRD / 表结构 / 补充说明 / 开发代码
@@ -468,11 +799,21 @@ if st.session_state["current_step"] == STEP_INPUT:
     if _generate_draft_clicked:
         materials = get_materials_from_state()
 
+        # 校验 PRD 名称
+        if not st.session_state.get("current_session_id", "").strip():
+            st.warning("请先填写或选择 PRD 名称。")
+            st.stop()
+
         if not materials["prd_text"].strip():
             st.warning("请先上传或粘贴 PRD 内容。")
-        else:
-            with st.spinner("正在分析 PRD..."):
-                user_content = f"""
+            st.stop()
+
+        # LLM 调用前：先存材料（防丢失）
+        st.session_state["session_create_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _do_save(is_new_version=True)
+
+        with st.spinner("正在分析 PRD..."):
+            user_content = f"""
 以下是 PRD 原文：
 
 {materials["prd_text"]}
@@ -496,37 +837,40 @@ if st.session_state["current_step"] == STEP_INPUT:
 请基于以上全部信息进行第一轮需求提炼分析。
 """
 
-                draft_result = call_llm(
-                    PRD_DRAFT_ANALYSIS_PROMPT,
-                    user_content
-                )
-                if is_llm_error(draft_result):
-                    render_error_with_fold(draft_result)
-                    st.stop()
+            draft_result = call_llm(
+                PRD_DRAFT_ANALYSIS_PROMPT,
+                user_content
+            )
+            if is_llm_error(draft_result):
+                render_error_with_fold(draft_result)
+                st.stop()
 
-                st.session_state["prd_draft_analysis_result"] = draft_result
-                st.session_state["prd_current_analysis_result"] = draft_result
+            st.session_state["prd_draft_analysis_result"] = draft_result
+            st.session_state["prd_current_analysis_result"] = draft_result
 
-                st.session_state["pending_points_rows"] = parse_pending_points_from_markdown(
-                    draft_result
-                )
+            st.session_state["pending_points_rows"] = parse_pending_points_from_markdown(
+                draft_result
+            )
 
-                st.session_state["pending_points_editor_version"] += 1
+            st.session_state["pending_points_editor_version"] += 1
 
-                st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
-                    st.session_state["pending_points_rows"]
-                )
+            st.session_state["prd_pending_answers"] = pending_points_to_llm_text(
+                st.session_state["pending_points_rows"]
+            )
 
-                st.session_state["pending_analysis_round"] = 1
-                st.session_state["pending_confirm_history"] = ""
+            st.session_state["pending_analysis_round"] = 1
+            st.session_state["pending_confirm_history"] = ""
 
-                st.session_state["ignore_remaining_pending_points"] = False
-                st.session_state["ignored_pending_points_text"] = ""
+            st.session_state["ignore_remaining_pending_points"] = False
+            st.session_state["ignored_pending_points_text"] = ""
 
-                st.session_state["prd_final_analysis_result"] = ""
-                st.session_state["test_case_result"] = ""
+            st.session_state["prd_final_analysis_result"] = ""
+            st.session_state["test_case_result"] = ""
 
-            go_to_step(STEP_PENDING)
+            # LLM 成功后：补存分析结果
+            _do_save(is_new_version=False)
+
+        go_to_step(STEP_PENDING)
 
 
 # =========================
@@ -735,6 +1079,9 @@ elif st.session_state["current_step"] == STEP_PENDING:
                 st.session_state["prd_final_analysis_result"] = ""
                 st.session_state["test_case_result"] = ""
 
+                # 收敛完成后保存
+                _do_save(is_new_version=False)
+
             st.rerun()
 
         if ignore_pending_clicked:
@@ -749,6 +1096,10 @@ elif st.session_state["current_step"] == STEP_PENDING:
             # 直接跳到第 4 步，初版结果即为终版
             st.session_state["prd_final_analysis_result"] = st.session_state["prd_current_analysis_result"]
             st.session_state["test_case_result"] = ""
+
+            # 忽略待确认点后保存
+            _do_save(is_new_version=False)
+
             go_to_step(STEP_TEST_CASE)
 
     if st.session_state.get("ignore_remaining_pending_points", False):
@@ -860,6 +1211,9 @@ elif st.session_state["current_step"] == STEP_FINAL:
 
             st.session_state["prd_final_analysis_result"] = final_result
             st.session_state["test_case_result"] = ""
+
+            # 最终版生成后保存
+            _do_save(is_new_version=False)
 
         st.success("最终版需求提炼表已生成。")
 
@@ -1003,6 +1357,9 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
 
             st.session_state["test_case_result"] = test_result
 
+            # 测试用例生成后保存
+            _do_save(is_new_version=False)
+
         st.success("测试用例和 SQL 校验脚本已生成。")
 
     if st.session_state["test_case_result"]:
@@ -1087,6 +1444,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                                 _df_r, _err_r = run_single_sql(_odps_entry_frag, _sql_to_run)
                             st.session_state["sql_run_results"][_idx + 1] = {"df": _df_r, "err": _err_r}
                             st.session_state["_sql_batch_idx"] = _idx + 1
+                            _do_save(is_new_version=False)
                             st.rerun()
                         else:
                             # 全部执行完毕
@@ -1242,6 +1600,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                                     with st.spinner("执行中..."):
                                         _df_result, _err = run_single_sql(_odps_entry_frag, _edited_sql)
                                     st.session_state["sql_run_results"][_i] = {"df": _df_result, "err": _err}
+                                    _do_save(is_new_version=False)
                                     st.rerun()
                             with _c_toggle:
                                 _toggle_label = "✏️ 编辑" if not st.session_state[_edit_mode_key] else "👁️ 只读"

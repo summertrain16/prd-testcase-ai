@@ -4,11 +4,14 @@
 被 app.py 调用，用于替代手动上传 xlsx 表结构，并支持在线执行生成的校验 SQL。
 """
 
+import json
 import streamlit as st
 import pandas as pd
 from odps import ODPS
 
 MAX_RESULT_ROWS = 1000
+
+SESSION_TABLE = "ods_shinebed_dev.ods_datatest_session_history"
 
 
 @st.cache_resource
@@ -322,3 +325,302 @@ def run_single_sql(odps_entry, sql_text, max_rows=MAX_RESULT_ROWS):
 
     # 全部失败
     return pd.DataFrame(), f"SQL 执行成功但结果读取失败（3 种方式均失败）：\n1) to_pandas: {_err1}\n2) tunnel reader: {_err2}\n3) legacy reader: {_err3}"
+
+
+# =========================
+# 会话历史记录持久化
+# =========================
+
+def _sanitize_prd_name(name: str) -> str:
+    """清洗 PRD 名称：限 50 字符，过滤危险特殊字符。"""
+    if not name:
+        return ""
+    _dangerous = set('"\'`;\\')
+    _cleaned = "".join(c for c in name if c not in _dangerous)
+    return _cleaned.strip()[:50]
+
+
+def _escape_sql_string(value: str) -> str:
+    """转义 SQL 字符串中的单引号，防止注入。"""
+    if value is None:
+        return ""
+    return str(value).replace("'", "''")
+
+
+def save_session_to_odps(odps_entry, session_data: dict, is_new_version: bool = False):
+    """保存会话到 ODPS 表。
+
+    参数：
+        odps_entry: ODPS 连接对象
+        session_data: 包含以下 key 的 dict
+            - session_id, prd_name, current_step
+            - prd_text, meeting_notes, dev_code
+            - result_schema, source_schema (JSON 字符串)
+            - draft_analysis, pending_points (JSON 字符串)
+            - pending_answers, pending_history, ignored_pending_points
+            - final_analysis, test_cases
+            - sql_results (JSON 字符串)
+        is_new_version: True=新建版本(INSERT+旧记录is_latest=false)，
+                        False=更新当前最新版本(DELETE+INSERT)
+
+    返回：
+        (是否成功, 错误信息)
+    """
+    if odps_entry is None:
+        return False, "ODPS 连接未配置"
+
+    _sid = _escape_sql_string(session_data.get("session_id", ""))
+    if not _sid:
+        return False, "session_id 为空"
+
+    _now = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        if is_new_version:
+            # 旧记录 is_latest 置 false
+            _sql_update_old = (
+                f"UPDATE {SESSION_TABLE} SET is_latest = false "
+                f"WHERE session_id = '{_sid}' AND is_latest = true"
+            )
+            odps_entry.execute_sql(_sql_update_old)
+
+            # 查当前最大版本号
+            _sql_max_ver = (
+                f"SELECT MAX(version) AS max_v FROM {SESSION_TABLE} "
+                f"WHERE session_id = '{_sid}'"
+            )
+            _instance = odps_entry.execute_sql(_sql_max_ver)
+            _max_ver = 0
+            with _instance.open_reader() as _r:
+                for _rec in _r:
+                    _max_ver = _rec[0] if _rec[0] else 0
+                    break
+            _new_ver = int(_max_ver) + 1
+            _is_latest = True
+            _create_time = _now
+        else:
+            # 更新当前最新版本：先删再插
+            _sql_del = (
+                f"DELETE FROM {SESSION_TABLE} "
+                f"WHERE session_id = '{_sid}' AND is_latest = true"
+            )
+            odps_entry.execute_sql(_sql_del)
+
+            # 查该 session 的 version 号
+            _sql_ver = (
+                f"SELECT MAX(version) AS max_v FROM {SESSION_TABLE} "
+                f"WHERE session_id = '{_sid}'"
+            )
+            _instance = odps_entry.execute_sql(_sql_ver)
+            _new_ver = 1
+            with _instance.open_reader() as _r:
+                for _rec in _r:
+                    _new_ver = int(_rec[0]) if _rec[0] else 1
+                    break
+            _is_latest = True
+            _create_time = session_data.get("create_time", _now)
+
+        # INSERT 新记录
+        _cols = [
+            "session_id", "prd_name", "version", "is_latest", "current_step",
+            "prd_text", "meeting_notes", "result_schema", "source_schema", "dev_code",
+            "draft_analysis", "pending_points", "pending_answers", "pending_history",
+            "ignored_pending_points", "final_analysis", "test_cases", "sql_results",
+            "create_time", "update_time"
+        ]
+
+        _vals = [
+            _escape_sql_string(session_data.get("session_id", "")),
+            _escape_sql_string(session_data.get("prd_name", "")),
+            str(_new_ver),
+            "true" if _is_latest else "false",
+            _escape_sql_string(session_data.get("current_step", "")),
+            _escape_sql_string(session_data.get("prd_text", "")),
+            _escape_sql_string(session_data.get("meeting_notes", "")),
+            _escape_sql_string(session_data.get("result_schema", "")),
+            _escape_sql_string(session_data.get("source_schema", "")),
+            _escape_sql_string(session_data.get("dev_code", "")),
+            _escape_sql_string(session_data.get("draft_analysis", "")),
+            _escape_sql_string(session_data.get("pending_points", "")),
+            _escape_sql_string(session_data.get("pending_answers", "")),
+            _escape_sql_string(session_data.get("pending_history", "")),
+            _escape_sql_string(session_data.get("ignored_pending_points", "")),
+            _escape_sql_string(session_data.get("final_analysis", "")),
+            _escape_sql_string(session_data.get("test_cases", "")),
+            _escape_sql_string(session_data.get("sql_results", "")),
+            _escape_sql_string(_create_time),
+            _escape_sql_string(_now),
+        ]
+
+        _col_list = ", ".join(_cols)
+        _val_list = ", ".join(f"'{v}'" for v in _vals)
+
+        _sql_insert = (
+            f"INSERT INTO {SESSION_TABLE} ({_col_list}) "
+            f"VALUES ({_val_list})"
+        )
+        odps_entry.execute_sql(_sql_insert)
+
+        return True, f"保存成功（版本 {_new_ver}）"
+
+    except Exception as e:
+        return False, f"保存失败：{e}"
+
+
+def load_session_list(odps_entry, limit=50):
+    """加载历史记录列表（只返回 is_latest=true 的摘要信息）。
+
+    返回：
+        [{"session_id", "prd_name", "version", "update_time"}, ...]
+        失败返回空列表。
+    """
+    if odps_entry is None:
+        return []
+
+    try:
+        _sql = (
+            f"SELECT session_id, prd_name, version, update_time "
+            f"FROM {SESSION_TABLE} "
+            f"WHERE is_latest = true "
+            f"ORDER BY update_time DESC "
+            f"LIMIT {limit}"
+        )
+        _instance = odps_entry.execute_sql(_sql)
+        _rows = []
+        with _instance.open_reader() as _r:
+            for _rec in _r:
+                _rows.append({
+                    "session_id": _rec[0],
+                    "prd_name": _rec[1],
+                    "version": int(_rec[2]) if _rec[2] else 1,
+                    "update_time": _rec[3],
+                })
+        return _rows
+    except Exception:
+        return []
+
+
+def load_session_detail(odps_entry, session_id, version=None):
+    """加载某条会话的完整详情。
+
+    参数：
+        version: 不传则加载 is_latest=true 的；传了加载指定版本
+
+    返回：
+        dict 包含全部字段，失败返回 None。
+    """
+    if odps_entry is None:
+        return None
+
+    _sid = _escape_sql_string(session_id)
+    if not _sid:
+        return None
+
+    try:
+        if version:
+            _sql = (
+                f"SELECT * FROM {SESSION_TABLE} "
+                f"WHERE session_id = '{_sid}' AND version = {int(version)}"
+            )
+        else:
+            _sql = (
+                f"SELECT * FROM {SESSION_TABLE} "
+                f"WHERE session_id = '{_sid}' AND is_latest = true"
+            )
+
+        _instance = odps_entry.execute_sql(_sql)
+        with _instance.open_reader() as _r:
+            for _rec in _r:
+                return {
+                    "session_id": _rec[0] or "",
+                    "prd_name": _rec[1] or "",
+                    "version": int(_rec[2]) if _rec[2] else 1,
+                    "is_latest": bool(_rec[3]),
+                    "current_step": _rec[4] or "",
+                    "prd_text": _rec[5] or "",
+                    "meeting_notes": _rec[6] or "",
+                    "result_schema": _rec[7] or "",
+                    "source_schema": _rec[8] or "",
+                    "dev_code": _rec[9] or "",
+                    "draft_analysis": _rec[10] or "",
+                    "pending_points": _rec[11] or "",
+                    "pending_answers": _rec[12] or "",
+                    "pending_history": _rec[13] or "",
+                    "ignored_pending_points": _rec[14] or "",
+                    "final_analysis": _rec[15] or "",
+                    "test_cases": _rec[16] or "",
+                    "sql_results": _rec[17] or "",
+                    "create_time": _rec[18] or "",
+                    "update_time": _rec[19] or "",
+                }
+        return None
+    except Exception:
+        return None
+
+
+def load_session_versions(odps_entry, session_id):
+    """查某 PRD 的所有版本列表。
+
+    返回：
+        [{"version", "create_time", "is_latest"}, ...]
+        失败返回空列表。
+    """
+    if odps_entry is None:
+        return []
+
+    _sid = _escape_sql_string(session_id)
+    if not _sid:
+        return []
+
+    try:
+        _sql = (
+            f"SELECT version, create_time, is_latest "
+            f"FROM {SESSION_TABLE} "
+            f"WHERE session_id = '{_sid}' "
+            f"ORDER BY version DESC"
+        )
+        _instance = odps_entry.execute_sql(_sql)
+        _rows = []
+        with _instance.open_reader() as _r:
+            for _rec in _r:
+                _rows.append({
+                    "version": int(_rec[0]) if _rec[0] else 1,
+                    "create_time": _rec[1] or "",
+                    "is_latest": bool(_rec[2]),
+                })
+        return _rows
+    except Exception:
+        return []
+
+
+def delete_session(odps_entry, session_id, version=None):
+    """删除会话记录。
+
+    参数：
+        version: 不传删全版本，传了删单版本
+
+    返回：
+        (是否成功, 错误信息)
+    """
+    if odps_entry is None:
+        return False, "ODPS 连接未配置"
+
+    _sid = _escape_sql_string(session_id)
+    if not _sid:
+        return False, "session_id 为空"
+
+    try:
+        if version:
+            _sql = (
+                f"DELETE FROM {SESSION_TABLE} "
+                f"WHERE session_id = '{_sid}' AND version = {int(version)}"
+            )
+        else:
+            _sql = (
+                f"DELETE FROM {SESSION_TABLE} "
+                f"WHERE session_id = '{_sid}'"
+            )
+        odps_entry.execute_sql(_sql)
+        return True, "删除成功"
+    except Exception as e:
+        return False, f"删除失败：{e}"

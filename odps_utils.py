@@ -402,10 +402,12 @@ def save_session_to_odps(odps_entry, session_data: dict, is_new_version: bool = 
 
             # INSERT OVERWRITE：旧记录 is_latest 全置 false（匹配 session_id 的），
             # 其他记录原样保留，最后 UNION ALL 新记录
+            # 注意：列顺序必须和表结构一致：session_id, prd_name, version, is_latest, ...
             _case_cols = ", ".join([
                 "session_id", "prd_name",
+                "version",
                 "CASE WHEN session_id = '{}' THEN false ELSE is_latest END AS is_latest".format(_sid),
-                "version", "current_step", "prd_text", "meeting_notes",
+                "current_step", "prd_text", "meeting_notes",
                 "result_schema", "source_schema", "dev_code",
                 "draft_analysis", "pending_points", "pending_answers",
                 "pending_history", "ignored_pending_points",

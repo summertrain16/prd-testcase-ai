@@ -223,7 +223,11 @@ def _load_session_to_state(detail: dict):
     st.session_state["pending_points_editor_version"] += 1
     st.session_state["result_schema_uploader_version"] += 1
     st.session_state["source_schema_uploader_version"] += 1
-    st.session_state["prd_file_uploader_version"] += 1
+    # dev_code 和 meeting_notes 也用版本号 key，防止加载历史后 rerun 导致 widget 值丢失
+    st.session_state["dev_code_widget_version"] += 1
+    st.session_state["meeting_notes_widget_version"] += 1
+    # 注意：不递增 prd_file_uploader_version，避免 file_uploader 重新初始化清空 uploaded_prd_text
+    # PRD 文本通过 session_state["uploaded_prd_text"] 直接回填
 
     # 恢复步骤状态
     if detail.get("ignored_pending_points", "").strip():
@@ -316,6 +320,12 @@ if "ignore_remaining_pending_points" not in st.session_state:
 
 if "ignored_pending_points_text" not in st.session_state:
     st.session_state["ignored_pending_points_text"] = ""
+
+if "dev_code_widget_version" not in st.session_state:
+    st.session_state["dev_code_widget_version"] = 0
+
+if "meeting_notes_widget_version" not in st.session_state:
+    st.session_state["meeting_notes_widget_version"] = 0
 
 material_state_defaults = {
     "prd_text": "",
@@ -541,9 +551,11 @@ odps_sk = "你的AccessKey Secret"
         st.session_state["prd_text"] = ""
         st.session_state["prd_manual_text"] = ""
         st.session_state["meeting_notes"] = ""
+        st.session_state["meeting_notes_widget_version"] += 1
         st.session_state["result_table_schema"] = ""
         st.session_state["source_table_schema"] = ""
         st.session_state["dev_code"] = ""
+        st.session_state["dev_code_widget_version"] += 1
         st.session_state["current_step"] = STEP_INPUT
         # 清空 ODPS 表结构相关 state
         st.session_state["source_schema_mode"] = ""
@@ -744,22 +756,32 @@ if st.session_state["current_step"] == STEP_INPUT:
     # ----- Tab 3: 补充说明 -----
     with _tab_notes:
         st.caption("粘贴会议纪要、评审记录等，帮助 AI 更准确理解需求口径。")
+        _meeting_notes_key = f"meeting_notes_{st.session_state['meeting_notes_widget_version']}"
+        if _meeting_notes_key not in st.session_state:
+            st.session_state[_meeting_notes_key] = st.session_state.get("meeting_notes", "")
         meeting_notes = st.text_area(
             "会议纪要 / 评审记录",
-            key="meeting_notes",
+            key=_meeting_notes_key,
             height=220,
             placeholder="例如：\n- 会议中确认了订单状态枚举值的映射关系\n- 过滤条件需排除测试账号\n- 金额字段保留两位小数",
         )
+        st.session_state["meeting_notes"] = meeting_notes
 
     # ----- Tab 4: 开发代码 -----
     with _tab_code:
         st.caption("粘贴参考开发代码（SQL、PySpark、DataWorks 调度等），帮助 AI 理解加工逻辑。")
+        _dev_code_key = f"dev_code_{st.session_state['dev_code_widget_version']}"
+        # 如果版本号变了（如加载历史后），需要把值同步到新 key
+        if _dev_code_key not in st.session_state:
+            st.session_state[_dev_code_key] = st.session_state.get("dev_code", "")
         dev_code = st.text_area(
             "参考开发代码",
-            key="dev_code",
+            key=_dev_code_key,
             height=300,
             placeholder="可以粘贴 SQL、PySpark、DataWorks 调度代码等。",
         )
+        # 同步回 dev_code 供后续使用
+        st.session_state["dev_code"] = dev_code
 
     # =========================
     # 合并 PRD 文本

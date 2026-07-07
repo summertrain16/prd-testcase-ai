@@ -580,13 +580,6 @@ if st.session_state["current_step"] == STEP_INPUT:
     # PRD 名称选择区（历史记录持久化）
     # =========================
 
-    _odps_entry_input = get_odps_entry(
-        st.session_state.get("odps_ak", "").strip(),
-        st.session_state.get("odps_sk", "").strip(),
-        st.session_state.get("odps_project", "").strip(),
-        st.session_state.get("odps_endpoint", "").strip(),
-    )
-
     with st.container():
         st.markdown("##### 📌 PRD 名称")
         _name_mode = st.radio(
@@ -600,17 +593,21 @@ if st.session_state["current_step"] == STEP_INPUT:
         if _name_mode == "选择已有 PRD":
             st.session_state["prd_name_mode"] = "existing"
 
-            # 加载历史记录列表
-            if _odps_entry_input:
-                if not st.session_state.get("session_history_list"):
-                    st.session_state["session_history_list"] = load_session_list(_odps_entry_input)
-            else:
-                st.session_state["session_history_list"] = []
-
+            # 只在列表为空时加载，不在每次 rerun 时查 ODPS
             _history = st.session_state.get("session_history_list", [])
 
             if not _history:
-                st.info("暂无历史记录，请选择「新建 PRD」。")
+                st.info("暂无历史记录或未加载，请点击下方「刷新列表」按钮。")
+                if st.button("🔄 加载历史记录列表", key="load_history_list_btn"):
+                    _odps_tmp = get_odps_entry(
+                        st.session_state.get("odps_ak", "").strip(),
+                        st.session_state.get("odps_sk", "").strip(),
+                        st.session_state.get("odps_project", "").strip(),
+                        st.session_state.get("odps_endpoint", "").strip(),
+                    )
+                    if _odps_tmp:
+                        st.session_state["session_history_list"] = load_session_list(_odps_tmp)
+                        st.rerun()
                 st.session_state["current_prd_name"] = ""
             else:
                 # 构造下拉选项：名称 + 版本 + 时间
@@ -633,10 +630,16 @@ if st.session_state["current_step"] == STEP_INPUT:
                     st.session_state["current_session_id"] = _sel_name
                     st.caption(f"💡 将作为「{_sel_name}」的第 {_sel_ver + 1} 次分析（版本 v{_sel_ver} → v{_sel_ver + 1}）")
 
-                    # 自动加载历史材料
+                    # 加载历史材料（按钮触发，不在 rerun 时查）
                     _load_btn = st.button("📂 加载该 PRD 的历史材料", key="load_existing_prd_btn")
                     if _load_btn:
-                        _detail = load_session_detail(_odps_entry_input, _sel_name)
+                        _odps_tmp2 = get_odps_entry(
+                            st.session_state.get("odps_ak", "").strip(),
+                            st.session_state.get("odps_sk", "").strip(),
+                            st.session_state.get("odps_project", "").strip(),
+                            st.session_state.get("odps_endpoint", "").strip(),
+                        )
+                        _detail = load_session_detail(_odps_tmp2, _sel_name) if _odps_tmp2 else None
                         if _detail:
                             _load_session_to_state(_detail)
                             st.success(f"已加载「{_sel_name}」v{_detail['version']} 的历史材料，可在各 Tab 中查看和修改。")
@@ -655,11 +658,22 @@ if st.session_state["current_step"] == STEP_INPUT:
             st.session_state["current_prd_name"] = _clean_name
             st.session_state["current_session_id"] = _clean_name
 
-            # 检查名称是否和已有记录重复
-            if _clean_name and _odps_entry_input:
-                _existing = load_session_detail(_odps_entry_input, _clean_name)
-                if _existing:
-                    st.caption(f"💡 名称「{_clean_name}」已存在（当前 v{_existing['version']}），本次将作为版本 v{_existing['version'] + 1} 重新分析。")
+            # 名称重复检查改为按钮触发，不在每次 rerun 时查 ODPS
+            if _clean_name:
+                _check_btn = st.button("🔍 检查名称是否已存在", key="check_name_btn")
+                if _check_btn:
+                    _odps_tmp3 = get_odps_entry(
+                        st.session_state.get("odps_ak", "").strip(),
+                        st.session_state.get("odps_sk", "").strip(),
+                        st.session_state.get("odps_project", "").strip(),
+                        st.session_state.get("odps_endpoint", "").strip(),
+                    )
+                    if _odps_tmp3:
+                        _existing = load_session_detail(_odps_tmp3, _clean_name)
+                        if _existing:
+                            st.caption(f"💡 名称「{_clean_name}」已存在（当前 v{_existing['version']}），本次将作为版本 v{_existing['version'] + 1} 重新分析。")
+                        else:
+                            st.caption("✅ 名称可用，将作为新 PRD 创建。")
 
     st.divider()
 
@@ -1712,4 +1726,3 @@ else:
     st.warning("当前步骤状态异常，已返回第 1 步。")
     st.session_state["current_step"] = STEP_INPUT
     st.rerun()
-    

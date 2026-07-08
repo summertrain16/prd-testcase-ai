@@ -176,7 +176,7 @@ def _load_session_to_state(detail: dict):
     st.session_state["current_session_id"] = detail.get("session_id", "")
     st.session_state["current_prd_name"] = detail.get("prd_name", "")
     st.session_state["current_version"] = detail.get("version", 1)
-    st.session_state["current_step"] = detail.get("current_step", "")
+    st.session_state["current_step"] = STEP_INPUT  # 加载历史后回到第1步，让用户检查材料后再继续
     st.session_state["prd_text"] = detail.get("prd_text", "")
     st.session_state["prd_manual_text"] = ""  # PRD 原文已含手动补充
     st.session_state["uploaded_prd_text"] = detail.get("prd_text", "")

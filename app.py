@@ -1454,7 +1454,8 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
  help="点击后停止后续 SQL 执行")
                     with _col_analyze:
                         _has_diff = any(
-                            v.get("df") is not None and not v.get("df").empty and not v.get("err")
+                            v.get("status") == "diff"
+                            or (v.get("df") is not None and not v.get("df").empty and not v.get("err"))
                             for v in st.session_state.get("sql_run_results", {}).values()
                         )
                         _analyze_clicked = st.button("🤖 一键分析所有差异", type="primary", use_container_width=True, key="batch_analyze_diff",
@@ -1489,7 +1490,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                         else:
                             # 全部执行完毕
                             st.session_state["_sql_batch_running"] = False
-                            _ok = sum(1 for v in st.session_state["sql_run_results"].values() if not v["err"])
+                            _ok = sum(1 for v in st.session_state["sql_run_results"].values() if not v.get("err"))
                             _fail = len(st.session_state["sql_run_results"]) - _ok
                             if _fail == 0:
                                 st.success(f"全部执行完成（{_ok} 段）。")
@@ -1501,7 +1502,7 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                     if not st.session_state.get("_sql_batch_running", False) and st.session_state.get("_sql_batch_idx", 0) > 0:
                         _b_idx = st.session_state.get("_sql_batch_idx", 0)
                         if _b_idx < len(_sql_blocks):
-                            _ok_s = sum(1 for v in st.session_state.get("sql_run_results", {}).values() if not v["err"])
+                            _ok_s = sum(1 for v in st.session_state.get("sql_run_results", {}).values() if not v.get("err"))
                             _fail_s = len(st.session_state.get("sql_run_results", {})) - _ok_s
                             st.info(f"执行已停止。已完成 {_b_idx}/{len(_sql_blocks)} 段（成功 {_ok_s}，失败 {_fail_s}）。")
                             st.session_state["_sql_batch_idx"] = 0
@@ -1511,7 +1512,11 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                         with st.spinner("AI 汇总分析中..."):
                             _batch_content_parts = []
                             for _bi, _bv in st.session_state["sql_run_results"].items():
-                                if _bv.get("df") is not None and not _bv.get("df").empty and not _bv.get("err"):
+                                # 兼容历史摘要格式：status=diff 或 df 非空
+                                _is_diff = _bv.get("status") == "diff" or (
+                                    _bv.get("df") is not None and not _bv.get("df").empty and not _bv.get("err")
+                                )
+                                if _is_diff and _bv.get("df") is not None:
                                     _batch_sql = st.session_state.get(f"sql_edit_{_bi}", _sql_blocks[_bi - 1])
                                     _diff_sample = _bv["df"].head(30).to_csv(index=False)
                                     _batch_content_parts.append(f"""
@@ -1566,9 +1571,15 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                     _run_results = st.session_state.get("sql_run_results", {})
                     _total_sql = len(_sql_blocks)
                     _executed = len(_run_results)
-                    _pass_cnt = sum(1 for v in _run_results.values() if not v["err"] and v.get("df") is not None and v["df"].empty)
-                    _diff_cnt = sum(1 for v in _run_results.values() if not v["err"] and v.get("df") is not None and not v["df"].empty)
-                    _fail_cnt = sum(1 for v in _run_results.values() if v["err"])
+                    # 兼容两种格式：运行时 {"df":..., "err":...} 和历史摘要 {"status":..., "diff_rows":..., "error":...}
+                    _pass_cnt = sum(1 for v in _run_results.values()
+                        if v.get("status") == "pass"
+                        or (not v.get("err") and v.get("df") is not None and v["df"].empty))
+                    _diff_cnt = sum(1 for v in _run_results.values()
+                        if v.get("status") == "diff"
+                        or (not v.get("err") and v.get("df") is not None and not v["df"].empty))
+                    _fail_cnt = sum(1 for v in _run_results.values()
+                        if v.get("status") == "fail" or v.get("err"))
 
                     if _executed > 0:
                         st.markdown(
@@ -1586,15 +1597,20 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
 
                     # 逐段展示 + 执行
                     for _i, _sql_block in enumerate(_sql_blocks, 1):
-                        # 计算该段状态
+                        # 计算该段状态（兼容历史摘要格式）
                         _cached_f = _run_results.get(_i)
                         if _cached_f:
-                            if _cached_f["err"]:
+                            # 优先用 status 字段（历史摘要格式）
+                            if _cached_f.get("status"):
+                                _status = _cached_f["status"]
+                            elif _cached_f.get("err"):
                                 _status = "fail"
-                            elif _cached_f["df"].empty:
+                            elif _cached_f.get("df") is not None and _cached_f["df"].empty:
                                 _status = "pass"
-                            else:
+                            elif _cached_f.get("df") is not None and not _cached_f["df"].empty:
                                 _status = "diff"
+                            else:
+                                _status = "pending"
                         else:
                             _status = "pending"
 
@@ -1654,30 +1670,37 @@ elif st.session_state["current_step"] == STEP_TEST_CASE:
                                     st.session_state[_edit_mode_key] = False
                                     st.rerun()
 
-                            # 展示已有结果
+                            # 展示已有结果（兼容历史摘要格式）
                             _cached = st.session_state["sql_run_results"].get(_i)
                             if _cached:
-                                if _cached["err"]:
-                                    render_error_with_fold(f"执行失败：{_cached['err']}")
-                                elif _cached["df"].empty:
+                                if _cached.get("status") == "fail" or _cached.get("err"):
+                                    _err_msg = _cached.get("err") or _cached.get("error") or "执行失败"
+                                    render_error_with_fold(f"执行失败：{_err_msg}")
+                                elif _cached.get("status") == "pass" or (_cached.get("df") is not None and _cached["df"].empty):
                                     st.success("校验通过，无差异")
-                                else:
-                                    st.caption(f"返回 {len(_cached['df'])} 行")
-                                    st.dataframe(
-                                        _cached["df"],
-                                        use_container_width=True,
-                                        height=300
-                                    )
-                                    with _c_export:
-                                        _csv_data = _cached["df"].to_csv(index=False).encode("utf-8-sig")
-                                        st.download_button(
-                                            label="📥 CSV",
-                                            data=_csv_data,
-                                            file_name=_ts_filename(f"sql_{_i:03d}_result", "csv"),
-                                            mime="text/csv",
+                                elif _cached.get("status") == "diff" or (_cached.get("df") is not None and not _cached["df"].empty):
+                                    if _cached.get("df") is not None:
+                                        st.caption(f"返回 {len(_cached['df'])} 行")
+                                        st.dataframe(
+                                            _cached["df"],
                                             use_container_width=True,
-                                            key=f"download_csv_{_i}"
+                                            height=300
                                         )
+                                        with _c_export:
+                                            _csv_data = _cached["df"].to_csv(index=False).encode("utf-8-sig")
+                                            st.download_button(
+                                                label="📥 CSV",
+                                                data=_csv_data,
+                                                file_name=_ts_filename(f"sql_{_i:03d}_result", "csv"),
+                                                mime="text/csv",
+                                                use_container_width=True,
+                                                key=f"download_csv_{_i}"
+                                            )
+                                    else:
+                                        _dr = _cached.get("diff_rows", 0)
+                                        st.warning(f"有差异（历史记录：差异 {_dr} 行，需重新执行查看明细）")
+                                else:
+                                    st.info("待执行")
 
                                     # ===== 逐段 AI 差异分析 =====
                                     _analysis_key = f"sql_diff_analysis_{_i}"

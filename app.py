@@ -29,7 +29,7 @@ from prompts import (
     SQL_DIFF_ANALYSIS_PROMPT,
 )
 from llm_utils import call_llm, is_llm_error
-from file_utils import read_uploaded_file
+from file_utils import read_uploaded_file, read_html_url
 from markdown_utils import (
     parse_pending_points_from_markdown,
     pending_points_to_llm_text,
@@ -706,7 +706,7 @@ if st.session_state["current_step"] == STEP_INPUT:
 
     # ----- Tab 1: PRD -----
     with _tab_prd:
-        st.caption("上传 PRD 文件或直接粘贴文本，二选一即可。")
+        st.caption("上传 PRD 文件、粘贴 URL 或直接粘贴文本，三选一即可。")
         _col_prd_left, _col_prd_right = st.columns(2)
 
         with _col_prd_left:
@@ -728,15 +728,38 @@ if st.session_state["current_step"] == STEP_INPUT:
                     st.session_state["prd_file_uploader_version"] += 1
                     st.rerun()
             else:
-                st.caption("未上传文件，可在右侧粘贴内容。")
+                st.caption("未上传文件，可在下方粘贴 URL 或在右侧粘贴内容。")
 
         with _col_prd_right:
             prd_manual_text = st.text_area(
                 "✏️ 粘贴 PRD 内容",
                 key="prd_manual_text",
                 height=260,
-                placeholder="请在这里粘贴 PRD 文本。\n如果已经上传文件，也可以在这里补充说明。",
+                placeholder="请在这里粘贴 PRD 文本。\n如果已经上传文件或抓取了 URL，也可以在这里补充说明。",
             )
+
+        # URL 抓取区
+        st.markdown("---")
+        _col_url_input, _col_url_btn = st.columns([4, 1])
+        with _col_url_input:
+            _prd_url = st.text_input(
+                "🔗 粘贴 PRD 页面 URL",
+                key="prd_url_input",
+                placeholder="https://xxx.app.codebuddy.work/...",
+                label_visibility="collapsed"
+            )
+        with _col_url_btn:
+            _fetch_btn = st.button("抓取页面", key="fetch_prd_url_btn", use_container_width=True)
+
+        if _fetch_btn and _prd_url.strip():
+            with st.spinner("正在抓取页面内容..."):
+                _html_text = read_html_url(_prd_url.strip())
+                if _html_text.startswith("URL 页面抓取失败"):
+                    st.error(_html_text)
+                else:
+                    st.session_state["uploaded_prd_text"] = _html_text
+                    st.success(f"✅ 已抓取页面内容（{len(_html_text)} 字符）")
+                    st.rerun()
 
     # ----- Tab 2: 表结构 -----
     with _tab_schema:

@@ -5,6 +5,7 @@
 - read_xlsx_file: 读取普通 xlsx 文件内容，转换成文本
 - read_uploaded_file: 支持读取 txt、md、sql、csv、json、py、pdf、docx、xlsx
 - read_table_schema_xlsx: 读取表结构 xlsx 文件内容
+- read_html_url: 从 URL 抓取 HTML 页面内容，转成纯文本
 - get_uploaded_file_id: 根据文件名和文件内容生成唯一 ID
 """
 
@@ -107,6 +108,66 @@ def read_uploaded_file(uploaded_file) -> str:
 
     except Exception as e:
         return f"文件读取失败：{str(e)}"
+
+
+def read_html_url(url: str) -> str:
+    """
+    从 URL 抓取 HTML 页面内容，提取正文文本。
+
+    使用 requests + BeautifulSoup 去除 script/style/nav 等噪音标签，
+    保留正文内容转成纯文本，用于 PRD 分析。
+
+    参数：
+        url: 页面 URL，例如 https://xxx.app.codebuddy.work/
+
+    返回：
+        提取后的纯文本。失败返回错误信息字符串。
+    """
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        _headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0.0.0 Safari/537.36"
+            )
+        }
+
+        resp = requests.get(url, headers=_headers, timeout=20)
+        resp.raise_for_status()
+        resp.encoding = resp.apparent_encoding or "utf-8"
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # 去除噪音标签
+        for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "svg"]):
+            tag.decompose()
+
+        # 提取标题
+        title = soup.title.get_text(strip=True) if soup.title else ""
+
+        # 提取正文
+        body = soup.body or soup
+        text = body.get_text(separator="\n", strip=True)
+
+        # 合并标题
+        parts = []
+        if title:
+            parts.append(f"# {title}\n")
+        parts.append(text)
+
+        result = "\n".join(parts)
+
+        # 截断超长内容（最大 10 万字符）
+        if len(result) > 100000:
+            result = result[:100000] + "\n\n......内容过长，已截断......"
+
+        return result
+
+    except Exception as e:
+        return f"URL 页面抓取失败：{str(e)}"
 
 
 def read_table_schema_xlsx(file_bytes: bytes, file_name: str) -> str:
